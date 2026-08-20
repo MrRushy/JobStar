@@ -1,0 +1,17 @@
+# VS Code
+.vscode/
+
+# Environment files
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backend build files
+backend/target/
+backend/HELP.md
+
+# Frontend dependencies/build files
+frontend/node_modules/
+frontend/dist/
