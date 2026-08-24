@@ -68,9 +68,21 @@ public class ApplicationService {
 
         application.setCompany(application.getCompany().trim());
         application.setPosition(application.getPosition().trim());
+        application.setLocation(normalizeOptionalText(application.getLocation()));
+        application.setJobUrl(normalizeOptionalText(application.getJobUrl()));
+        application.setNotes(normalizeOptionalText(application.getNotes()));
 
         if (application.getStatus() == null) {
             application.setStatus(ApplicationStatus.SAVED);
         }
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmedValue = value.trim();
+        return trimmedValue.isEmpty() ? null : trimmedValue;
     }
 }

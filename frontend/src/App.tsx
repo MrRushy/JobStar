@@ -51,17 +51,55 @@ const statusLabels: Record<ApplicationStatus, string> = {
   WITHDRAWN: "Withdrawn",
 };
 
+function createFormFromApplication(application: JobApplication): ApplicationForm {
+  return {
+    company: application.company,
+    position: application.position,
+    status: application.status,
+    location: application.location ?? "",
+    jobUrl: application.jobUrl ?? "",
+    appliedDate: application.appliedDate ?? "",
+    notes: application.notes ?? "",
+  };
+}
+
+function createRequestBody(form: ApplicationForm) {
+  return {
+    company: form.company.trim(),
+    position: form.position.trim(),
+    status: form.status,
+    location: form.location.trim() || null,
+    jobUrl: form.jobUrl.trim() || null,
+    appliedDate: form.appliedDate || null,
+    notes: form.notes.trim() || null,
+  };
+}
+
+function formatAppliedDate(appliedDate: string | null) {
+  if (!appliedDate) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${appliedDate}T00:00:00`));
+}
+
 function App() {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [form, setForm] = useState<ApplicationForm>(emptyForm);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let isCurrent = true;
+    const controller = new AbortController();
 
-    fetch(API_URL)
+    fetch(API_URL, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
           throw new Error("Could not load applications.");
@@ -69,54 +107,115 @@ function App() {
         return response.json() as Promise<JobApplication[]>;
       })
       .then((data) => {
-        if (isCurrent) {
-          setApplications(data);
-        }
+        setApplications(data);
       })
-      .catch(() => {
-        if (isCurrent) {
-          setError("Could not reach the backend. Make sure it is running on port 8080.");
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") {
+          return;
         }
+
+        setError("Could not reach the backend. Make sure it is running on port 8080.");
       })
       .finally(() => {
-        if (isCurrent) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       });
 
     return () => {
-      isCurrent = false;
+      controller.abort();
     };
   }, []);
+
+  function resetForm() {
+    setForm(emptyForm);
+    setEditingId(null);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
     setError("");
 
+    const isEditing = editingId !== null;
+    const requestUrl = isEditing ? `${API_URL}/${editingId}` : API_URL;
+    const requestMethod = isEditing ? "PUT" : "POST";
+
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
+      const response = await fetch(requestUrl, {
+        method: requestMethod,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          appliedDate: form.appliedDate || null,
-        }),
+        body: JSON.stringify(createRequestBody(form)),
       });
 
       if (!response.ok) {
-        throw new Error("Could not create the application.");
+        throw new Error(isEditing ? "Could not update the application." : "Could not create the application.");
       }
 
-      const createdApplication: JobApplication = await response.json();
-      setApplications((currentApplications) => [createdApplication, ...currentApplications]);
-      setForm(emptyForm);
+      const savedApplication: JobApplication = await response.json();
+      setApplications((currentApplications) => {
+        if (isEditing) {
+          return currentApplications.map((application) =>
+            application.id === savedApplication.id ? savedApplication : application,
+          );
+        }
+
+        return [savedApplication, ...currentApplications];
+      });
+      resetForm();
     } catch {
-      setError("Could not save this application. Please try again.");
+      setError(
+        isEditing
+          ? "Could not update this application. Please try again."
+          : "Could not save this application. Please try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
+
+  function handleEditStart(application: JobApplication) {
+    setError("");
+    setEditingId(application.id);
+    setForm(createFormFromApplication(application));
+  }
+
+  async function handleDelete(application: JobApplication) {
+    const shouldDelete = window.confirm(
+      `Delete ${application.company} - ${application.position}? This cannot be undone.`,
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingId(application.id);
+    setError("");
+
+    try {
+      const response = await fetch(`${API_URL}/${application.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not delete the application.");
+      }
+
+      setApplications((currentApplications) =>
+        currentApplications.filter((currentApplication) => currentApplication.id !== application.id),
+      );
+
+      if (editingId === application.id) {
+        resetForm();
+      }
+    } catch {
+      setError("Could not delete this application. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const summaryStatuses = Object.entries(statusLabels).filter(([, label]) =>
+    applications.some((application) => statusLabels[application.status] === label),
+  );
 
   return (
     <main className="app-shell">
@@ -131,8 +230,12 @@ function App() {
           <div className="section-heading">
             <p className="section-number">01</p>
             <div>
-              <h2>Add an opportunity</h2>
-              <p>Start with the details you know. You can refine it later.</p>
+              <h2>{editingId === null ? "Add an opportunity" : "Update an opportunity"}</h2>
+              <p>
+                {editingId === null
+                  ? "Start with the details you know. You can refine it later."
+                  : "Make changes here, then save them back to your tracker."}
+              </p>
             </div>
           </div>
 
@@ -201,14 +304,32 @@ function App() {
                 value={form.notes}
                 onChange={(event) => setForm({ ...form, notes: event.target.value })}
                 placeholder="What makes this role interesting?"
-                rows={3}
+                rows={4}
               />
             </label>
           </div>
 
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Saving..." : "Save application"}
-          </button>
+          <div className="form-actions">
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting
+                ? editingId === null
+                  ? "Saving..."
+                  : "Updating..."
+                : editingId === null
+                  ? "Save application"
+                  : "Update application"}
+            </button>
+            {editingId !== null && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={resetForm}
+                disabled={isSubmitting}
+              >
+                Cancel edit
+              </button>
+            )}
+          </div>
         </form>
 
         <section className="application-list" aria-live="polite">
@@ -220,6 +341,21 @@ function App() {
             </div>
           </div>
 
+          {applications.length > 0 && (
+            <div className="summary-row" aria-label="Application status summary">
+              {summaryStatuses.map(([status, label]) => (
+                <p className="summary-pill" key={status}>
+                  <span>{label}</span>
+                  <strong>
+                    {
+                      applications.filter((application) => application.status === status).length
+                    }
+                  </strong>
+                </p>
+              ))}
+            </div>
+          )}
+
           {error && <p className="message error-message">{error}</p>}
           {isLoading && <p className="message">Loading applications...</p>}
           {!isLoading && !error && applications.length === 0 && (
@@ -227,22 +363,60 @@ function App() {
           )}
           {!isLoading && applications.length > 0 && (
             <div className="cards">
-              {applications.map((application) => (
-                <article className="application-card" key={application.id}>
-                  <div>
-                    <p className="company">{application.company}</p>
-                    <h3>{application.position}</h3>
-                    {(application.location || application.appliedDate) && (
-                      <p className="details">
-                        {[application.location, application.appliedDate].filter(Boolean).join(" | ")}
-                      </p>
-                    )}
-                  </div>
-                  <span className={`status status-${application.status.toLowerCase()}`}>
-                    {statusLabels[application.status]}
-                  </span>
-                </article>
-              ))}
+              {applications.map((application) => {
+                const appliedDate = formatAppliedDate(application.appliedDate);
+
+                return (
+                  <article className="application-card" key={application.id}>
+                    <div className="card-content">
+                      <div>
+                        <p className="company">{application.company}</p>
+                        <h3>{application.position}</h3>
+                        {(application.location || appliedDate) && (
+                          <p className="details">
+                            {[application.location, appliedDate].filter(Boolean).join(" | ")}
+                          </p>
+                        )}
+                      </div>
+
+                      {application.notes && <p className="notes">{application.notes}</p>}
+
+                      {application.jobUrl && (
+                        <p className="link-row">
+                          <a href={application.jobUrl} target="_blank" rel="noreferrer">
+                            View posting
+                          </a>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="card-side">
+                      <span className={`status status-${application.status.toLowerCase()}`}>
+                        {statusLabels[application.status]}
+                      </span>
+
+                      <div className="card-actions">
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => handleEditStart(application)}
+                          disabled={isSubmitting || deletingId === application.id}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-button danger-button"
+                          onClick={() => handleDelete(application)}
+                          disabled={deletingId === application.id}
+                        >
+                          {deletingId === application.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>
