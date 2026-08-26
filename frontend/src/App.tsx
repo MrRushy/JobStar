@@ -10,6 +10,7 @@ type ApplicationForm = { company: string; position: string; status: ApplicationS
 type Account = { id: number; email: string };
 type CredentialsForm = { email: string; password: string };
 type CsrfToken = { headerName: string; token: string };
+type ApplicationSort = "NEWEST" | "OLDEST" | "COMPANY_ASC" | "COMPANY_DESC";
 
 const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "" };
 const emptyCredentials: CredentialsForm = { email: "", password: "" };
@@ -38,6 +39,9 @@ function App() {
   const [credentials, setCredentials] = useState<CredentialsForm>(emptyCredentials);
   const [currentUser, setCurrentUser] = useState<Account | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("register");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "ALL">("ALL");
+  const [sort, setSort] = useState<ApplicationSort>("NEWEST");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,16 +55,13 @@ function App() {
     async function loadSession() {
       try {
         const response = await fetch(`${API_ROOT}/auth/me`, { credentials: "include", signal: controller.signal });
-        if (response.status === 401) return;
-        if (!response.ok) throw new Error("Could not check your session.");
+        if (response.status === 401 || !response.ok) return;
         setCurrentUser((await response.json()) as Account);
         await loadApplications(controller.signal);
       } catch (requestError: unknown) {
-        if (!(requestError instanceof DOMException && requestError.name === "AbortError")) {
-          setAuthError("Could not reach the backend. Make sure it is running on port 8080.");
-        }
+        if (requestError instanceof DOMException && requestError.name === "AbortError") return;
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     }
     void loadSession();
@@ -131,7 +132,21 @@ function App() {
     finally { setDeletingId(null); }
   }
 
-  const summaryStatuses = Object.entries(statusLabels).filter(([, label]) => applications.some((application) => statusLabels[application.status] === label));
+  const visibleApplications = applications
+    .filter((application) => {
+      const matchesSearch = `${application.company} ${application.position}`
+        .toLowerCase()
+        .includes(searchQuery.trim().toLowerCase());
+      const matchesStatus = statusFilter === "ALL" || application.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((first, second) => {
+      if (sort === "OLDEST") return first.id - second.id;
+      if (sort === "COMPANY_ASC") return first.company.localeCompare(second.company);
+      if (sort === "COMPANY_DESC") return second.company.localeCompare(first.company);
+      return second.id - first.id;
+    });
+  const summaryStatuses = Object.entries(statusLabels).filter(([, label]) => visibleApplications.some((application) => statusLabels[application.status] === label));
 
   return <main className="app-shell">
     <header className="masthead">
@@ -164,10 +179,16 @@ function App() {
         <div className="form-actions"><button type="submit" disabled={isSubmitting}>{isSubmitting ? editingId === null ? "Saving..." : "Updating..." : editingId === null ? "Save application" : "Update application"}</button>{editingId !== null && <button type="button" className="secondary-button" onClick={resetForm} disabled={isSubmitting}>Cancel edit</button>}</div>
       </form>
       <section className="application-list" aria-live="polite">
-        <div className="section-heading list-heading"><p className="section-number">02</p><div><h2>Your opportunities</h2><p>{applications.length} tracked so far</p></div></div>
-        {applications.length > 0 && <div className="summary-row" aria-label="Application status summary">{summaryStatuses.map(([status, label]) => <p className="summary-pill" key={status}><span>{label}</span><strong>{applications.filter((application) => application.status === status).length}</strong></p>)}</div>}
+        <div className="section-heading list-heading"><p className="section-number">02</p><div><h2>Your opportunities</h2><p>{visibleApplications.length} of {applications.length} shown</p></div></div>
+        {applications.length > 0 && <div className="list-controls">
+          <label className="search-control">Search<input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Company or position" /></label>
+          <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicationStatus | "ALL")}><option value="ALL">All statuses</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as ApplicationSort)}><option value="NEWEST">Newest added</option><option value="OLDEST">Oldest added</option><option value="COMPANY_ASC">Company A-Z</option><option value="COMPANY_DESC">Company Z-A</option></select></label>
+        </div>}
+        {visibleApplications.length > 0 && <div className="summary-row" aria-label="Application status summary">{summaryStatuses.map(([status, label]) => <p className="summary-pill" key={status}><span>{label}</span><strong>{visibleApplications.filter((application) => application.status === status).length}</strong></p>)}</div>}
         {error && <p className="message error-message">{error}</p>}{applications.length === 0 && <p className="message empty-message">Your saved applications will appear here.</p>}
-        {applications.length > 0 && <div className="cards">{applications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <p className="notes">{application.notes}</p>}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => { setError(""); setEditingId(application.id); setForm(createFormFromApplication(application)); }} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
+        {applications.length > 0 && visibleApplications.length === 0 && <p className="message empty-message">No applications match these controls.</p>}
+        {visibleApplications.length > 0 && <div className="cards">{visibleApplications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <p className="notes">{application.notes}</p>}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => { setError(""); setEditingId(application.id); setForm(createFormFromApplication(application)); }} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
       </section>
     </section>}
   </main>;
