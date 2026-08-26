@@ -4,8 +4,8 @@ import java.util.List;
 
 import com.jobstar.backend.model.Application;
 import com.jobstar.backend.model.ApplicationStatus;
+import com.jobstar.backend.model.UserAccount;
 import com.jobstar.backend.repository.ApplicationRepository;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,21 +19,22 @@ public class ApplicationService {
         this.applicationRepository = applicationRepository;
     }
 
-    public List<Application> getAllApplications() {
-        return applicationRepository.findAll(Sort.by(Sort.Direction.DESC, "id"));
+    public List<Application> getAllApplications(UserAccount owner) {
+        return applicationRepository.findAllByOwnerOrderByIdDesc(owner);
     }
 
-    public Application getApplicationById(Long id) {
-        return findApplicationOrThrow(id);
+    public Application getApplicationById(Long id, UserAccount owner) {
+        return findApplicationOrThrow(id, owner);
     }
 
-    public Application createApplication(Application application) {
+    public Application createApplication(Application application, UserAccount owner) {
         normalizeAndValidate(application);
+        application.setOwner(owner);
         return applicationRepository.save(application);
     }
 
-    public Application updateApplication(Long id, Application updatedApplication) {
-        Application existingApplication = findApplicationOrThrow(id);
+    public Application updateApplication(Long id, Application updatedApplication, UserAccount owner) {
+        Application existingApplication = findApplicationOrThrow(id, owner);
         normalizeAndValidate(updatedApplication);
 
         existingApplication.setCompany(updatedApplication.getCompany());
@@ -47,12 +48,12 @@ public class ApplicationService {
         return applicationRepository.save(existingApplication);
     }
 
-    public void deleteApplication(Long id) {
-        applicationRepository.delete(findApplicationOrThrow(id));
+    public void deleteApplication(Long id, UserAccount owner) {
+        applicationRepository.delete(findApplicationOrThrow(id, owner));
     }
 
-    private Application findApplicationOrThrow(Long id) {
-        return applicationRepository.findById(id)
+    private Application findApplicationOrThrow(Long id, UserAccount owner) {
+        return applicationRepository.findByIdAndOwner(id, owner)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Application with id " + id + " was not found"));
