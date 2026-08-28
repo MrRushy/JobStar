@@ -147,6 +147,12 @@ function App() {
       return second.id - first.id;
     });
   const summaryStatuses = Object.entries(statusLabels).filter(([, label]) => visibleApplications.some((application) => statusLabels[application.status] === label));
+  const statusCounts = Object.fromEntries(
+    Object.keys(statusLabels).map((status) => [
+      status,
+      applications.filter((application) => application.status === status).length,
+    ]),
+  ) as Record<ApplicationStatus, number>;
 
   return <main className="app-shell">
     <header className="masthead">
@@ -164,9 +170,20 @@ function App() {
       </div>{authError && <p className="message error-message">{authError}</p>}<div className="form-actions"><button type="submit" disabled={isAuthenticating}>{isAuthenticating ? authMode === "register" ? "Creating account..." : "Signing in..." : authMode === "register" ? "Create account" : "Sign in"}</button><button type="button" className="secondary-button" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setAuthError(""); }} disabled={isAuthenticating}>{authMode === "register" ? "I already have an account" : "Create a new account"}</button></div></form>
     </section>}
 
+    {!isLoading && currentUser && <section className="dashboard" aria-label="Application dashboard">
+      <div className="dashboard-heading"><div><p className="eyebrow">Dashboard</p><h2>Your search at a glance</h2><p>Live totals from every application in your tracker.</p></div><p className="dashboard-note">{applications.length === 0 ? "Add your first opportunity to start building a picture." : "Keep adding applications to make these totals more useful."}</p></div>
+      <div className="metric-grid">
+        <article className="metric-card metric-card-total"><p>Total tracked</p><strong>{applications.length}</strong><span>Every opportunity</span></article>
+        <article className="metric-card"><p>Saved / to apply</p><strong>{statusCounts.SAVED}</strong><span>Ready for your next step</span></article>
+        <article className="metric-card"><p>Interviews</p><strong>{statusCounts.INTERVIEWING}</strong><span>Moving forward</span></article>
+        <article className="metric-card"><p>Offers</p><strong>{statusCounts.OFFER}</strong><span>Worth celebrating</span></article>
+      </div>
+      <div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div>
+    </section>}
+
     {!isLoading && currentUser && <section className="workspace" aria-label="Application tracker">
       <form className="application-form" onSubmit={handleSubmit}>
-        <div className="section-heading"><p className="section-number">01</p><div><h2>{editingId === null ? "Add an opportunity" : "Update an opportunity"}</h2><p>{editingId === null ? "Start with the details you know. You can refine it later." : "Make changes here, then save them back to your tracker."}</p></div></div>
+        <div className="section-heading"><p className="section-number">02</p><div><h2>{editingId === null ? "Add an opportunity" : "Update an opportunity"}</h2><p>{editingId === null ? "Start with the details you know. You can refine it later." : "Make changes here, then save them back to your tracker."}</p></div></div>
         <div className="form-grid">
           <label>Company<input required value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="Acme Inc." /></label>
           <label>Position<input required value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })} placeholder="Junior Software Developer" /></label>
@@ -179,7 +196,7 @@ function App() {
         <div className="form-actions"><button type="submit" disabled={isSubmitting}>{isSubmitting ? editingId === null ? "Saving..." : "Updating..." : editingId === null ? "Save application" : "Update application"}</button>{editingId !== null && <button type="button" className="secondary-button" onClick={resetForm} disabled={isSubmitting}>Cancel edit</button>}</div>
       </form>
       <section className="application-list" aria-live="polite">
-        <div className="section-heading list-heading"><p className="section-number">02</p><div><h2>Your opportunities</h2><p>{visibleApplications.length} of {applications.length} shown</p></div></div>
+        <div className="section-heading list-heading"><p className="section-number">03</p><div><h2>Your opportunities</h2><p>{visibleApplications.length} of {applications.length} shown</p></div></div>
         {applications.length > 0 && <div className="list-controls">
           <label className="search-control">Search<input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Company or position" /></label>
           <label>Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicationStatus | "ALL")}><option value="ALL">All statuses</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
