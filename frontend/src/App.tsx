@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import "./App.css";
 
 const API_ROOT = "http://localhost:8080/api";
@@ -43,12 +43,16 @@ function App() {
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "ALL">("ALL");
   const [sort, setSort] = useState<ApplicationSort>("NEWEST");
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [selectedApplication, setSelectedApplication] = useState<JobApplication | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [authError, setAuthError] = useState("");
+  const [detailsError, setDetailsError] = useState("");
+  const detailsRequestId = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,6 +87,40 @@ function App() {
 
   function resetForm() { setForm(emptyForm); setEditingId(null); }
 
+  function closeDetails() {
+    detailsRequestId.current += 1;
+    setSelectedApplication(null);
+    setDetailsError("");
+    setIsDetailsLoading(false);
+  }
+
+  function handleEditStart(application: JobApplication) {
+    setError("");
+    setEditingId(application.id);
+    setForm(createFormFromApplication(application));
+    closeDetails();
+  }
+
+  async function handleDetailsOpen(applicationId: number) {
+    const requestId = detailsRequestId.current + 1;
+    detailsRequestId.current = requestId;
+    setIsDetailsLoading(true);
+    setDetailsError("");
+    setSelectedApplication(null);
+
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${applicationId}`, { credentials: "include" });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not load this application."));
+      if (detailsRequestId.current === requestId) setSelectedApplication((await response.json()) as JobApplication);
+    } catch (requestError) {
+      if (detailsRequestId.current === requestId) {
+        setDetailsError(requestError instanceof Error ? requestError.message : "Could not load this application.");
+      }
+    } finally {
+      if (detailsRequestId.current === requestId) setIsDetailsLoading(false);
+    }
+  }
+
   async function handleAuthentication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsAuthenticating(true);
@@ -115,6 +153,7 @@ function App() {
       if (!response.ok) throw new Error();
       const saved = (await response.json()) as JobApplication;
       setApplications((current) => isEditing ? current.map((application) => application.id === saved.id ? saved : application) : [saved, ...current]);
+      if (selectedApplication?.id === saved.id) setSelectedApplication(saved);
       resetForm();
     } catch { setError(isEditing ? "Could not update this application. Please try again." : "Could not save this application. Please try again."); }
     finally { setIsSubmitting(false); }
@@ -128,6 +167,7 @@ function App() {
       if (!response.ok) throw new Error();
       setApplications((current) => current.filter((item) => item.id !== application.id));
       if (editingId === application.id) resetForm();
+      if (selectedApplication?.id === application.id) closeDetails();
     } catch { setError("Could not delete this application. Please try again."); }
     finally { setDeletingId(null); }
   }
@@ -181,6 +221,24 @@ function App() {
       <div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div>
     </section>}
 
+    {!isLoading && currentUser && (isDetailsLoading || selectedApplication || detailsError) && <div className="detail-backdrop">
+      <section className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+        <button type="button" className="detail-close" onClick={closeDetails} aria-label="Close application details">Close</button>
+        {isDetailsLoading && <p className="message">Loading application details...</p>}
+        {detailsError && <p className="message error-message">{detailsError}</p>}
+        {selectedApplication && <>
+          <div className="detail-heading"><p className="company">{selectedApplication.company}</p><h2 id="detail-title">{selectedApplication.position}</h2><span className={`status status-${selectedApplication.status.toLowerCase()}`}>{statusLabels[selectedApplication.status]}</span></div>
+          <div className="detail-grid">
+            <div><p>Location</p><strong>{selectedApplication.location ?? "Not specified"}</strong></div>
+            <div><p>Date applied</p><strong>{formatAppliedDate(selectedApplication.appliedDate) ?? "Not specified"}</strong></div>
+            <div className="detail-notes"><p>Notes</p><strong>{selectedApplication.notes ?? "No notes yet."}</strong></div>
+            <div><p>Job posting</p>{selectedApplication.jobUrl ? <a href={selectedApplication.jobUrl} target="_blank" rel="noreferrer">Open posting</a> : <strong>Not saved</strong>}</div>
+          </div>
+          <div className="detail-actions"><button type="button" onClick={() => handleEditStart(selectedApplication)}>Edit application</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(selectedApplication)} disabled={deletingId === selectedApplication.id}>{deletingId === selectedApplication.id ? "Deleting..." : "Delete application"}</button></div>
+        </>}
+      </section>
+    </div>}
+
     {!isLoading && currentUser && <section className="workspace" aria-label="Application tracker">
       <form className="application-form" onSubmit={handleSubmit}>
         <div className="section-heading"><p className="section-number">02</p><div><h2>{editingId === null ? "Add an opportunity" : "Update an opportunity"}</h2><p>{editingId === null ? "Start with the details you know. You can refine it later." : "Make changes here, then save them back to your tracker."}</p></div></div>
@@ -205,7 +263,7 @@ function App() {
         {visibleApplications.length > 0 && <div className="summary-row" aria-label="Application status summary">{summaryStatuses.map(([status, label]) => <p className="summary-pill" key={status}><span>{label}</span><strong>{visibleApplications.filter((application) => application.status === status).length}</strong></p>)}</div>}
         {error && <p className="message error-message">{error}</p>}{applications.length === 0 && <p className="message empty-message">Your saved applications will appear here.</p>}
         {applications.length > 0 && visibleApplications.length === 0 && <p className="message empty-message">No applications match these controls.</p>}
-        {visibleApplications.length > 0 && <div className="cards">{visibleApplications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <p className="notes">{application.notes}</p>}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => { setError(""); setEditingId(application.id); setForm(createFormFromApplication(application)); }} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
+        {visibleApplications.length > 0 && <div className="cards">{visibleApplications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <p className="notes">{application.notes}</p>}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => handleDetailsOpen(application.id)} disabled={isDetailsLoading || deletingId === application.id}>View details</button><button type="button" className="ghost-button" onClick={() => handleEditStart(application)} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
       </section>
     </section>}
   </main>;
