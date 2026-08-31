@@ -68,11 +68,15 @@ The main goals of JobStar are to:
 
 **Phase 1 - Full-Stack Foundation: Complete**
 
-- Full application CRUD flow works across React, Spring Boot, and PostgreSQL.
+- Full application CRUD works across React, Spring Boot, and PostgreSQL.
 
-**Phase 2 - Make It Useful: In Progress**
+**Phase 2 - Make It Useful: Complete**
 
-- User authentication and private application ownership are complete.
-- Application statuses, notes, search, filtering, sorting, and a basic dashboard are complete.
-- The next planned slice is a dedicated application detail view
+- Private user accounts, session authentication, password hashing, and application ownership are implemented.
+- Application statuses, notes, search, filtering, sorting, dashboard metrics, and application detail views are complete.
+- JobStar is now usable as a personal job application tracker.
 
+**Phase 3 - Portfolio Quality: Next**
+
+- The next planned slice is automated API integration testing.
+- Later Phase 3 work includes interview tracking, recruiter/contact management, follow-ups, job-description storage, resume versions, improved validation, deployment, and professional documentation.
