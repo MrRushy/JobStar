@@ -231,6 +231,97 @@ h1 {
   font-family: "DM Mono", monospace;
 }
 
+.detail-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(18, 62, 48, 0.55);
+}
+
+.detail-panel {
+  width: min(100%, 660px);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+  padding: clamp(24px, 5vw, 44px);
+  background: var(--panel);
+  box-shadow: 14px 16px 0 rgba(23, 33, 28, 0.28);
+  animation: rise-in 220ms ease-out both;
+}
+
+.detail-close {
+  display: block;
+  width: auto;
+  margin-left: auto;
+  padding: 7px 0;
+  color: var(--forest);
+  background: transparent;
+  font-size: 0.74rem;
+}
+
+.detail-close:hover:not(:disabled) {
+  background: transparent;
+  transform: none;
+  text-decoration: underline;
+}
+
+.detail-heading {
+  margin: 22px 0 26px;
+}
+
+.detail-heading h2 {
+  margin-bottom: 13px;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.detail-grid > div {
+  min-height: 106px;
+  padding: 17px;
+  background: #fffefa;
+}
+
+.detail-grid p {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 0.67rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.detail-grid strong,
+.detail-grid a {
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.detail-grid a {
+  color: var(--forest);
+  font-weight: 700;
+}
+
+.detail-notes {
+  grid-column: 1 / -1;
+}
+
+.detail-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 22px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(330px, 1.1fr);
@@ -620,6 +711,20 @@ h3 {
 
   .metric-card:first-child {
     grid-column: 1 / -1;
+  }
+
+  .detail-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .detail-panel {
+    max-height: 88vh;
+  }
+
+  .detail-grid,
+  .detail-actions {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-breakdown > div {
