@@ -5,16 +5,21 @@ const API_ROOT = "http://localhost:8080/api";
 const APPLICATIONS_URL = `${API_ROOT}/applications`;
 
 type ApplicationStatus = "SAVED" | "APPLIED" | "INTERVIEWING" | "OFFER" | "REJECTED" | "WITHDRAWN";
+type InterviewType = "PHONE" | "VIDEO" | "ONSITE" | "TECHNICAL" | "OTHER";
 type JobApplication = { id: number; company: string; position: string; status: ApplicationStatus; location: string | null; jobUrl: string | null; appliedDate: string | null; notes: string | null };
 type ApplicationForm = { company: string; position: string; status: ApplicationStatus; location: string; jobUrl: string; appliedDate: string; notes: string };
+type Interview = { id: number; scheduledAt: string; type: InterviewType; interviewer: string | null; notes: string | null };
+type InterviewForm = { scheduledAt: string; type: InterviewType; interviewer: string; notes: string };
 type Account = { id: number; email: string };
 type CredentialsForm = { email: string; password: string };
 type CsrfToken = { headerName: string; token: string };
 type ApplicationSort = "NEWEST" | "OLDEST" | "COMPANY_ASC" | "COMPANY_DESC";
 
 const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "" };
+const emptyInterviewForm: InterviewForm = { scheduledAt: "", type: "VIDEO", interviewer: "", notes: "" };
 const emptyCredentials: CredentialsForm = { email: "", password: "" };
 const statusLabels: Record<ApplicationStatus, string> = { SAVED: "Saved", APPLIED: "Applied", INTERVIEWING: "Interviewing", OFFER: "Offer", REJECTED: "Rejected", WITHDRAWN: "Withdrawn" };
+const interviewTypeLabels: Record<InterviewType, string> = { PHONE: "Phone", VIDEO: "Video", ONSITE: "Onsite", TECHNICAL: "Technical", OTHER: "Other" };
 
 function createFormFromApplication(application: JobApplication): ApplicationForm {
   return { company: application.company, position: application.position, status: application.status, location: application.location ?? "", jobUrl: application.jobUrl ?? "", appliedDate: application.appliedDate ?? "", notes: application.notes ?? "" };
@@ -26,6 +31,14 @@ function createRequestBody(form: ApplicationForm) {
 
 function formatAppliedDate(date: string | null) {
   return date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${date}T00:00:00`)) : null;
+}
+
+function formatInterviewDateTime(dateTime: string) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(dateTime));
+}
+
+function createInterviewForm(interview: Interview): InterviewForm {
+  return { scheduledAt: interview.scheduledAt.slice(0, 16), type: interview.type, interviewer: interview.interviewer ?? "", notes: interview.notes ?? "" };
 }
 
 async function responseMessage(response: Response, fallback: string) {
@@ -44,10 +57,15 @@ function App() {
   const [sort, setSort] = useState<ApplicationSort>("NEWEST");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedApplication, setSelectedApplication] = useState<JobApplication | null>(null);
+  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [interviewForm, setInterviewForm] = useState<InterviewForm>(emptyInterviewForm);
+  const [editingInterviewId, setEditingInterviewId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+  const [isInterviewSubmitting, setIsInterviewSubmitting] = useState(false);
+  const [deletingInterviewId, setDeletingInterviewId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -90,6 +108,9 @@ function App() {
   function closeDetails() {
     detailsRequestId.current += 1;
     setSelectedApplication(null);
+    setInterviews([]);
+    setInterviewForm(emptyInterviewForm);
+    setEditingInterviewId(null);
     setDetailsError("");
     setIsDetailsLoading(false);
   }
@@ -107,17 +128,69 @@ function App() {
     setIsDetailsLoading(true);
     setDetailsError("");
     setSelectedApplication(null);
+    setInterviews([]);
 
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${applicationId}`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not load this application."));
-      if (detailsRequestId.current === requestId) setSelectedApplication((await response.json()) as JobApplication);
+      const application = (await response.json()) as JobApplication;
+      const interviewsResponse = await fetch(`${APPLICATIONS_URL}/${applicationId}/interviews`, { credentials: "include" });
+      if (!interviewsResponse.ok) throw new Error(await responseMessage(interviewsResponse, "Could not load interviews."));
+      if (detailsRequestId.current === requestId) {
+        setSelectedApplication(application);
+        setInterviews((await interviewsResponse.json()) as Interview[]);
+      }
     } catch (requestError) {
       if (detailsRequestId.current === requestId) {
         setDetailsError(requestError instanceof Error ? requestError.message : "Could not load this application.");
       }
     } finally {
       if (detailsRequestId.current === requestId) setIsDetailsLoading(false);
+    }
+  }
+
+  function resetInterviewForm() {
+    setInterviewForm(emptyInterviewForm);
+    setEditingInterviewId(null);
+  }
+
+  async function handleInterviewSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedApplication) return;
+    setIsInterviewSubmitting(true);
+    setDetailsError("");
+    const isEditing = editingInterviewId !== null;
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/interviews${isEditing ? `/${editingInterviewId}` : ""}`, {
+        method: isEditing ? "PUT" : "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
+        body: JSON.stringify({ scheduledAt: interviewForm.scheduledAt, type: interviewForm.type, interviewer: interviewForm.interviewer.trim() || null, notes: interviewForm.notes.trim() || null }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not save this interview."));
+      const saved = (await response.json()) as Interview;
+      setInterviews((current) => (isEditing ? current.map((interview) => interview.id === saved.id ? saved : interview) : [...current, saved]).sort((first, second) => first.scheduledAt.localeCompare(second.scheduledAt)));
+      resetInterviewForm();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this interview.");
+    } finally {
+      setIsInterviewSubmitting(false);
+    }
+  }
+
+  async function handleInterviewDelete(interview: Interview) {
+    if (!selectedApplication || !window.confirm("Delete this interview? This cannot be undone.")) return;
+    setDeletingInterviewId(interview.id);
+    setDetailsError("");
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/interviews/${interview.id}`, { method: "DELETE", credentials: "include", headers: await csrfHeaders() });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not delete this interview."));
+      setInterviews((current) => current.filter((item) => item.id !== interview.id));
+      if (editingInterviewId === interview.id) resetInterviewForm();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not delete this interview.");
+    } finally {
+      setDeletingInterviewId(null);
     }
   }
 
@@ -234,6 +307,20 @@ function App() {
             <div className="detail-notes"><p>Notes</p><strong>{selectedApplication.notes ?? "No notes yet."}</strong></div>
             <div><p>Job posting</p>{selectedApplication.jobUrl ? <a href={selectedApplication.jobUrl} target="_blank" rel="noreferrer">Open posting</a> : <strong>Not saved</strong>}</div>
           </div>
+          <section className="interview-section" aria-labelledby="interview-title">
+            <div className="interview-heading"><div><p className="detail-label">Interview plan</p><h3 id="interview-title">Interviews</h3></div><span>{interviews.length}</span></div>
+            {interviews.length === 0 ? <p className="interview-empty">No interviews scheduled yet.</p> : <div className="interview-list">{interviews.map((interview) => <article className="interview-card" key={interview.id}><div><p className="interview-date">{formatInterviewDateTime(interview.scheduledAt)}</p><strong>{interviewTypeLabels[interview.type]} interview</strong>{interview.interviewer && <span>With {interview.interviewer}</span>}{interview.notes && <p className="interview-notes">{interview.notes}</p>}</div><div className="interview-actions"><button type="button" className="text-button" onClick={() => { setInterviewForm(createInterviewForm(interview)); setEditingInterviewId(interview.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleInterviewDelete(interview)} disabled={deletingInterviewId === interview.id}>{deletingInterviewId === interview.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
+            <form className="interview-form" onSubmit={handleInterviewSubmit}>
+              <h4>{editingInterviewId === null ? "Schedule an interview" : "Update interview"}</h4>
+              <div className="interview-form-grid">
+                <label>Date and time<input type="datetime-local" required value={interviewForm.scheduledAt} onChange={(event) => setInterviewForm({ ...interviewForm, scheduledAt: event.target.value })} /></label>
+                <label>Type<select value={interviewForm.type} onChange={(event) => setInterviewForm({ ...interviewForm, type: event.target.value as InterviewType })}>{Object.entries(interviewTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label className="full-width">Interviewer<input value={interviewForm.interviewer} onChange={(event) => setInterviewForm({ ...interviewForm, interviewer: event.target.value })} placeholder="Name, recruiter, or panel" /></label>
+                <label className="full-width">Preparation notes<textarea value={interviewForm.notes} onChange={(event) => setInterviewForm({ ...interviewForm, notes: event.target.value })} placeholder="Topics to prepare, questions to ask..." rows={3} /></label>
+              </div>
+              <div className="interview-form-actions"><button type="submit" disabled={isInterviewSubmitting}>{isInterviewSubmitting ? "Saving..." : editingInterviewId === null ? "Add interview" : "Update interview"}</button>{editingInterviewId !== null && <button type="button" className="secondary-button" onClick={resetInterviewForm} disabled={isInterviewSubmitting}>Cancel edit</button>}</div>
+            </form>
+          </section>
           <div className="detail-actions"><button type="button" onClick={() => handleEditStart(selectedApplication)}>Edit application</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(selectedApplication)} disabled={deletingId === selectedApplication.id}>{deletingId === selectedApplication.id ? "Deleting..." : "Delete application"}</button></div>
         </>}
       </section>

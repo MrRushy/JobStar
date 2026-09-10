@@ -315,6 +315,135 @@ h1 {
   grid-column: 1 / -1;
 }
 
+.interview-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.interview-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.detail-label,
+.interview-date {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.interview-heading h3,
+.interview-form h4 {
+  margin: 0;
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  font-size: 1.15rem;
+}
+
+.interview-heading > span {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--forest);
+  color: #fffdf7;
+  font-family: "DM Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.interview-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.interview-list {
+  display: grid;
+  gap: 8px;
+}
+
+.interview-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 16px;
+  border-left: 3px solid var(--gold);
+  background: #f2f4ec;
+}
+
+.interview-card strong,
+.interview-card span,
+.interview-notes {
+  display: block;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.interview-card span {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.interview-notes {
+  margin: 8px 0 0;
+}
+
+.interview-actions {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+}
+
+.text-button {
+  width: auto;
+  padding: 0;
+  color: var(--forest);
+  background: transparent;
+  font-size: 0.75rem;
+}
+
+.text-button:hover:not(:disabled) {
+  background: transparent;
+  transform: none;
+  text-decoration: underline;
+}
+
+.danger-text {
+  color: #9d3131;
+}
+
+.interview-form {
+  margin-top: 16px;
+  padding: 18px;
+  background: #e5eee2;
+}
+
+.interview-form h4 {
+  margin-bottom: 14px;
+}
+
+.interview-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.interview-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .detail-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

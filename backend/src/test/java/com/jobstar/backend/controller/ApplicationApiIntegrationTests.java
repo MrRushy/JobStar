@@ -141,6 +141,56 @@ class ApplicationApiIntegrationTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void signedInUserCanManageInterviewsForTheirApplication() throws Exception {
+        MockHttpSession session = register("user@example.com");
+        String applicationId = createApplication(session, "Acme", "Developer");
+
+        MvcResult createResult = mockMvc.perform(post("/api/applications/{applicationId}/interviews", applicationId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scheduledAt":"2026-10-15T14:30:00", "type":"VIDEO", "interviewer":"Sam Lee", "notes":"Bring portfolio examples."}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.type").value("VIDEO"))
+                .andExpect(jsonPath("$.interviewer").value("Sam Lee"))
+                .andReturn();
+
+        String interviewId = com.jayway.jsonpath.JsonPath.read(
+                createResult.getResponse().getContentAsString(), "$.id").toString();
+
+        mockMvc.perform(get("/api/applications/{applicationId}/interviews", applicationId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].notes").value("Bring portfolio examples."));
+
+        mockMvc.perform(put("/api/applications/{applicationId}/interviews/{interviewId}", applicationId, interviewId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scheduledAt":"2026-10-16T10:00:00", "type":"TECHNICAL", "interviewer":"Sam Lee"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("TECHNICAL"));
+
+        mockMvc.perform(delete("/api/applications/{applicationId}/interviews/{interviewId}", applicationId, interviewId)
+                        .session(session)
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void userCannotAccessAnotherUsersInterviews() throws Exception {
+        MockHttpSession firstSession = register("first@example.com");
+        MockHttpSession secondSession = register("second@example.com");
+        String applicationId = createApplication(firstSession, "Private Company", "Developer");
+
+        mockMvc.perform(get("/api/applications/{applicationId}/interviews", applicationId).session(secondSession))
+                .andExpect(status().isNotFound());
+    }
+
     private MockHttpSession register(String email) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/auth/register")
                         .with(csrf())
