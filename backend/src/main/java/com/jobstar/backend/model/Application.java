@@ -1,6 +1,8 @@
 package com.jobstar.backend.model;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import jakarta.persistence.Column;
@@ -12,6 +14,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 
 @Entity
 public class Application {
@@ -40,6 +43,10 @@ public class Application {
     @ManyToOne
     @JoinColumn(name = "user_id")
     private UserAccount owner;
+
+    @JsonIgnore
+    @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
+    private List<Interview> interviews = new ArrayList<>();
 
     public Application() {
     }
