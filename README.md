@@ -76,7 +76,7 @@ The main goals of JobStar are to:
 - Application statuses, notes, search, filtering, sorting, dashboard metrics, and application detail views are complete.
 - JobStar is now usable as a personal job application tracker.
 
-**Phase 3 - Portfolio Quality: Next**
+**Phase 3 - Portfolio Quality: Current**
 
-- The next planned slice is automated API integration testing.
-- Later Phase 3 work includes interview tracking, recruiter/contact management, follow-ups, job-description storage, resume versions, improved validation, deployment, and professional documentation.
+
+- Phase 3 work includes interview tracking, recruiter/contact management, follow-ups, job-description storage, resume versions, improved validation, deployment, and professional documentation.
