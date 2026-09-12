@@ -48,6 +48,10 @@ public class Application {
     @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
     private List<Interview> interviews = new ArrayList<>();
 
+    @JsonIgnore
+    @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
+    private List<Contact> contacts = new ArrayList<>();
+
     public Application() {
     }
 

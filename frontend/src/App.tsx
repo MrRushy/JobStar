@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import "./App.css";
 
 const API_ROOT = "http://localhost:8080/api";
@@ -10,6 +10,8 @@ type JobApplication = { id: number; company: string; position: string; status: A
 type ApplicationForm = { company: string; position: string; status: ApplicationStatus; location: string; jobUrl: string; appliedDate: string; notes: string };
 type Interview = { id: number; scheduledAt: string; type: InterviewType; interviewer: string | null; notes: string | null };
 type InterviewForm = { scheduledAt: string; type: InterviewType; interviewer: string; notes: string };
+type Contact = { id: number; name: string; role: string | null; email: string | null; profileUrl: string | null; notes: string | null };
+type ContactForm = { name: string; role: string; email: string; profileUrl: string; notes: string };
 type Account = { id: number; email: string };
 type CredentialsForm = { email: string; password: string };
 type CsrfToken = { headerName: string; token: string };
@@ -17,6 +19,7 @@ type ApplicationSort = "NEWEST" | "OLDEST" | "COMPANY_ASC" | "COMPANY_DESC";
 
 const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "" };
 const emptyInterviewForm: InterviewForm = { scheduledAt: "", type: "VIDEO", interviewer: "", notes: "" };
+const emptyContactForm: ContactForm = { name: "", role: "", email: "", profileUrl: "", notes: "" };
 const emptyCredentials: CredentialsForm = { email: "", password: "" };
 const statusLabels: Record<ApplicationStatus, string> = { SAVED: "Saved", APPLIED: "Applied", INTERVIEWING: "Interviewing", OFFER: "Offer", REJECTED: "Rejected", WITHDRAWN: "Withdrawn" };
 const interviewTypeLabels: Record<InterviewType, string> = { PHONE: "Phone", VIDEO: "Video", ONSITE: "Onsite", TECHNICAL: "Technical", OTHER: "Other" };
@@ -41,6 +44,31 @@ function createInterviewForm(interview: Interview): InterviewForm {
   return { scheduledAt: interview.scheduledAt.slice(0, 16), type: interview.type, interviewer: interview.interviewer ?? "", notes: interview.notes ?? "" };
 }
 
+function createContactForm(contact: Contact): ContactForm {
+  return { name: contact.name, role: contact.role ?? "", email: contact.email ?? "", profileUrl: contact.profileUrl ?? "", notes: contact.notes ?? "" };
+}
+
+function FormattedText({ content, className = "" }: { content: string; className?: string }) {
+  const blocks: Array<{ type: "text"; lines: string[] } | { type: "list"; items: string[] }> = [];
+
+  for (const line of content.split(/\r?\n/)) {
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    const previousBlock = blocks.at(-1);
+    if (bullet) {
+      if (previousBlock?.type === "list") previousBlock.items.push(bullet[1]);
+      else blocks.push({ type: "list", items: [bullet[1]] });
+    } else if (previousBlock?.type === "text") {
+      previousBlock.lines.push(line);
+    } else {
+      blocks.push({ type: "text", lines: [line] });
+    }
+  }
+
+  return <div className={`formatted-text ${className}`}>{blocks.map((block, index) => block.type === "list"
+    ? <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>
+    : <p key={index}>{block.lines.join("\n")}</p>)}</div>;
+}
+
 async function responseMessage(response: Response, fallback: string) {
   const body = (await response.json().catch(() => null)) as { detail?: string; message?: string } | null;
   return body?.detail ?? body?.message ?? fallback;
@@ -60,12 +88,18 @@ function App() {
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [interviewForm, setInterviewForm] = useState<InterviewForm>(emptyInterviewForm);
   const [editingInterviewId, setEditingInterviewId] = useState<number | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactForm, setContactForm] = useState<ContactForm>(emptyContactForm);
+  const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [isInterviewSubmitting, setIsInterviewSubmitting] = useState(false);
   const [deletingInterviewId, setDeletingInterviewId] = useState<number | null>(null);
+  const [isContactSubmitting, setIsContactSubmitting] = useState(false);
+  const [deletingContactId, setDeletingContactId] = useState<number | null>(null);
+  const [copiedEmailId, setCopiedEmailId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [authError, setAuthError] = useState("");
@@ -105,12 +139,25 @@ function App() {
 
   function resetForm() { setForm(emptyForm); setEditingId(null); }
 
+  function insertTextareaTab(event: KeyboardEvent<HTMLTextAreaElement>, updateValue: (value: string) => void) {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    const field = event.currentTarget;
+    const nextValue = `${field.value.slice(0, field.selectionStart)}\t${field.value.slice(field.selectionEnd)}`;
+    const nextCursorPosition = field.selectionStart + 1;
+    updateValue(nextValue);
+    window.requestAnimationFrame(() => field.setSelectionRange(nextCursorPosition, nextCursorPosition));
+  }
+
   function closeDetails() {
     detailsRequestId.current += 1;
     setSelectedApplication(null);
     setInterviews([]);
     setInterviewForm(emptyInterviewForm);
     setEditingInterviewId(null);
+    setContacts([]);
+    setContactForm(emptyContactForm);
+    setEditingContactId(null);
     setDetailsError("");
     setIsDetailsLoading(false);
   }
@@ -129,16 +176,22 @@ function App() {
     setDetailsError("");
     setSelectedApplication(null);
     setInterviews([]);
+    setContacts([]);
 
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${applicationId}`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not load this application."));
       const application = (await response.json()) as JobApplication;
-      const interviewsResponse = await fetch(`${APPLICATIONS_URL}/${applicationId}/interviews`, { credentials: "include" });
+      const [interviewsResponse, contactsResponse] = await Promise.all([
+        fetch(`${APPLICATIONS_URL}/${applicationId}/interviews`, { credentials: "include" }),
+        fetch(`${APPLICATIONS_URL}/${applicationId}/contacts`, { credentials: "include" }),
+      ]);
       if (!interviewsResponse.ok) throw new Error(await responseMessage(interviewsResponse, "Could not load interviews."));
+      if (!contactsResponse.ok) throw new Error(await responseMessage(contactsResponse, "Could not load contacts."));
       if (detailsRequestId.current === requestId) {
         setSelectedApplication(application);
         setInterviews((await interviewsResponse.json()) as Interview[]);
+        setContacts((await contactsResponse.json()) as Contact[]);
       }
     } catch (requestError) {
       if (detailsRequestId.current === requestId) {
@@ -192,6 +245,76 @@ function App() {
     } finally {
       setDeletingInterviewId(null);
     }
+  }
+
+  function resetContactForm() {
+    setContactForm(emptyContactForm);
+    setEditingContactId(null);
+  }
+
+  async function handleContactSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedApplication) return;
+    setIsContactSubmitting(true);
+    setDetailsError("");
+    const isEditing = editingContactId !== null;
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/contacts${isEditing ? `/${editingContactId}` : ""}`, {
+        method: isEditing ? "PUT" : "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
+        body: JSON.stringify({ name: contactForm.name.trim(), role: contactForm.role.trim() || null, email: contactForm.email.trim() || null, profileUrl: contactForm.profileUrl.trim() || null, notes: contactForm.notes.trim() || null }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not save this contact."));
+      const saved = (await response.json()) as Contact;
+      setContacts((current) => (isEditing ? current.map((contact) => contact.id === saved.id ? saved : contact) : [...current, saved]).sort((first, second) => first.name.localeCompare(second.name)));
+      resetContactForm();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this contact.");
+    } finally {
+      setIsContactSubmitting(false);
+    }
+  }
+
+  async function handleContactDelete(contact: Contact) {
+    if (!selectedApplication || !window.confirm(`Delete ${contact.name}? This cannot be undone.`)) return;
+    setDeletingContactId(contact.id);
+    setDetailsError("");
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/contacts/${contact.id}`, { method: "DELETE", credentials: "include", headers: await csrfHeaders() });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not delete this contact."));
+      setContacts((current) => current.filter((item) => item.id !== contact.id));
+      if (editingContactId === contact.id) resetContactForm();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not delete this contact.");
+    } finally {
+      setDeletingContactId(null);
+    }
+  }
+
+  async function handleCopyEmail(email: string, contactId: number) {
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(email);
+      copied = true;
+    } catch {
+      const temporaryInput = document.createElement("textarea");
+      temporaryInput.value = email;
+      temporaryInput.style.position = "fixed";
+      temporaryInput.style.opacity = "0";
+      document.body.append(temporaryInput);
+      temporaryInput.select();
+      copied = document.execCommand("copy");
+      temporaryInput.remove();
+    }
+
+    if (!copied) {
+      setDetailsError("Could not copy this email address.");
+      return;
+    }
+
+    setCopiedEmailId(contactId);
+    window.setTimeout(() => setCopiedEmailId((current) => current === contactId ? null : current), 1800);
   }
 
   async function handleAuthentication(event: FormEvent<HTMLFormElement>) {
@@ -294,8 +417,8 @@ function App() {
       <div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div>
     </section>}
 
-    {!isLoading && currentUser && (isDetailsLoading || selectedApplication || detailsError) && <div className="detail-backdrop">
-      <section className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+    {!isLoading && currentUser && (isDetailsLoading || selectedApplication || detailsError) && <div className="detail-backdrop" onClick={closeDetails}>
+      <section className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="detail-close" onClick={closeDetails} aria-label="Close application details">Close</button>
         {isDetailsLoading && <p className="message">Loading application details...</p>}
         {detailsError && <p className="message error-message">{detailsError}</p>}
@@ -304,21 +427,36 @@ function App() {
           <div className="detail-grid">
             <div><p>Location</p><strong>{selectedApplication.location ?? "Not specified"}</strong></div>
             <div><p>Date applied</p><strong>{formatAppliedDate(selectedApplication.appliedDate) ?? "Not specified"}</strong></div>
-            <div className="detail-notes"><p>Notes</p><strong>{selectedApplication.notes ?? "No notes yet."}</strong></div>
+            <div className="detail-notes"><p>Notes</p>{selectedApplication.notes ? <FormattedText content={selectedApplication.notes} /> : <strong>No notes yet.</strong>}</div>
             <div><p>Job posting</p>{selectedApplication.jobUrl ? <a href={selectedApplication.jobUrl} target="_blank" rel="noreferrer">Open posting</a> : <strong>Not saved</strong>}</div>
           </div>
           <section className="interview-section" aria-labelledby="interview-title">
             <div className="interview-heading"><div><p className="detail-label">Interview plan</p><h3 id="interview-title">Interviews</h3></div><span>{interviews.length}</span></div>
-            {interviews.length === 0 ? <p className="interview-empty">No interviews scheduled yet.</p> : <div className="interview-list">{interviews.map((interview) => <article className="interview-card" key={interview.id}><div><p className="interview-date">{formatInterviewDateTime(interview.scheduledAt)}</p><strong>{interviewTypeLabels[interview.type]} interview</strong>{interview.interviewer && <span>With {interview.interviewer}</span>}{interview.notes && <p className="interview-notes">{interview.notes}</p>}</div><div className="interview-actions"><button type="button" className="text-button" onClick={() => { setInterviewForm(createInterviewForm(interview)); setEditingInterviewId(interview.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleInterviewDelete(interview)} disabled={deletingInterviewId === interview.id}>{deletingInterviewId === interview.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
+            {interviews.length === 0 ? <p className="interview-empty">No interviews scheduled yet.</p> : <div className="interview-list">{interviews.map((interview) => <article className="interview-card" key={interview.id}><div><p className="interview-date">{formatInterviewDateTime(interview.scheduledAt)}</p><strong>{interviewTypeLabels[interview.type]} interview</strong>{interview.interviewer && <span>With {interview.interviewer}</span>}{interview.notes && <FormattedText content={interview.notes} className="interview-notes" />}</div><div className="interview-actions"><button type="button" className="text-button" onClick={() => { setInterviewForm(createInterviewForm(interview)); setEditingInterviewId(interview.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleInterviewDelete(interview)} disabled={deletingInterviewId === interview.id}>{deletingInterviewId === interview.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
             <form className="interview-form" onSubmit={handleInterviewSubmit}>
               <h4>{editingInterviewId === null ? "Schedule an interview" : "Update interview"}</h4>
               <div className="interview-form-grid">
                 <label>Date and time<input type="datetime-local" required value={interviewForm.scheduledAt} onChange={(event) => setInterviewForm({ ...interviewForm, scheduledAt: event.target.value })} /></label>
                 <label>Type<select value={interviewForm.type} onChange={(event) => setInterviewForm({ ...interviewForm, type: event.target.value as InterviewType })}>{Object.entries(interviewTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                 <label className="full-width">Interviewer<input value={interviewForm.interviewer} onChange={(event) => setInterviewForm({ ...interviewForm, interviewer: event.target.value })} placeholder="Name, recruiter, or panel" /></label>
-                <label className="full-width">Preparation notes<textarea value={interviewForm.notes} onChange={(event) => setInterviewForm({ ...interviewForm, notes: event.target.value })} placeholder="Topics to prepare, questions to ask..." rows={3} /></label>
+                <label className="full-width">Preparation notes<textarea value={interviewForm.notes} onChange={(event) => setInterviewForm({ ...interviewForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setInterviewForm({ ...interviewForm, notes }))} placeholder="Topics to prepare, questions to ask... Use - for bullet points." rows={3} /></label>
               </div>
               <div className="interview-form-actions"><button type="submit" disabled={isInterviewSubmitting}>{isInterviewSubmitting ? "Saving..." : editingInterviewId === null ? "Add interview" : "Update interview"}</button>{editingInterviewId !== null && <button type="button" className="secondary-button" onClick={resetInterviewForm} disabled={isInterviewSubmitting}>Cancel edit</button>}</div>
+            </form>
+          </section>
+          <section className="contact-section" aria-labelledby="contact-title">
+            <div className="contact-heading"><div><p className="detail-label">People</p><h3 id="contact-title">Contacts</h3></div><span>{contacts.length}</span></div>
+            {contacts.length === 0 ? <p className="contact-empty">No contacts saved for this application yet.</p> : <div className="contact-list">{contacts.map((contact) => <article className="contact-card" key={contact.id}><div><strong>{contact.name}</strong>{contact.role && <span>{contact.role}</span>}<div className="contact-links">{contact.email && <><a href={`mailto:${contact.email}`}>Email {contact.name}</a><button type="button" className="text-button copy-email-button" onClick={() => handleCopyEmail(contact.email!, contact.id)}>{copiedEmailId === contact.id ? "Copied" : "Copy email"}</button></>}{contact.profileUrl && <a href={contact.profileUrl} target="_blank" rel="noreferrer">Open profile</a>}</div>{contact.notes && <FormattedText content={contact.notes} className="contact-notes" />}</div><div className="contact-actions"><button type="button" className="text-button" onClick={() => { setContactForm(createContactForm(contact)); setEditingContactId(contact.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleContactDelete(contact)} disabled={deletingContactId === contact.id}>{deletingContactId === contact.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
+            <form className="contact-form" onSubmit={handleContactSubmit}>
+              <h4>{editingContactId === null ? "Add a contact" : "Update contact"}</h4>
+              <div className="contact-form-grid">
+                <label>Name<input required value={contactForm.name} onChange={(event) => setContactForm({ ...contactForm, name: event.target.value })} placeholder="Taylor Morgan" /></label>
+                <label>Role or relationship<input value={contactForm.role} onChange={(event) => setContactForm({ ...contactForm, role: event.target.value })} placeholder="Recruiter" /></label>
+                <label>Email<input type="email" value={contactForm.email} onChange={(event) => setContactForm({ ...contactForm, email: event.target.value })} placeholder="taylor@example.com" /></label>
+                <label>Profile link<input type="url" value={contactForm.profileUrl} onChange={(event) => setContactForm({ ...contactForm, profileUrl: event.target.value })} placeholder="https://linkedin.com/in/..." /></label>
+                <label className="full-width">Notes<textarea value={contactForm.notes} onChange={(event) => setContactForm({ ...contactForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setContactForm({ ...contactForm, notes }))} placeholder="How you met, preferred contact method... Use - for bullet points." rows={3} /></label>
+              </div>
+              <div className="contact-form-actions"><button type="submit" disabled={isContactSubmitting}>{isContactSubmitting ? "Saving..." : editingContactId === null ? "Add contact" : "Update contact"}</button>{editingContactId !== null && <button type="button" className="secondary-button" onClick={resetContactForm} disabled={isContactSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
           <div className="detail-actions"><button type="button" onClick={() => handleEditStart(selectedApplication)}>Edit application</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(selectedApplication)} disabled={deletingId === selectedApplication.id}>{deletingId === selectedApplication.id ? "Deleting..." : "Delete application"}</button></div>
@@ -336,7 +474,7 @@ function App() {
           <label>Date applied<input type="date" value={form.appliedDate} onChange={(event) => setForm({ ...form, appliedDate: event.target.value })} /></label>
           <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="New York, NY" /></label>
           <label>Job link<input type="url" value={form.jobUrl} onChange={(event) => setForm({ ...form, jobUrl: event.target.value })} placeholder="https://..." /></label>
-          <label className="full-width">Notes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="What makes this role interesting?" rows={4} /></label>
+          <label className="full-width">Notes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setForm({ ...form, notes }))} placeholder="What makes this role interesting? Use - for bullet points." rows={4} /></label>
         </div>
         <div className="form-actions"><button type="submit" disabled={isSubmitting}>{isSubmitting ? editingId === null ? "Saving..." : "Updating..." : editingId === null ? "Save application" : "Update application"}</button>{editingId !== null && <button type="button" className="secondary-button" onClick={resetForm} disabled={isSubmitting}>Cancel edit</button>}</div>
       </form>
@@ -350,7 +488,7 @@ function App() {
         {visibleApplications.length > 0 && <div className="summary-row" aria-label="Application status summary">{summaryStatuses.map(([status, label]) => <p className="summary-pill" key={status}><span>{label}</span><strong>{visibleApplications.filter((application) => application.status === status).length}</strong></p>)}</div>}
         {error && <p className="message error-message">{error}</p>}{applications.length === 0 && <p className="message empty-message">Your saved applications will appear here.</p>}
         {applications.length > 0 && visibleApplications.length === 0 && <p className="message empty-message">No applications match these controls.</p>}
-        {visibleApplications.length > 0 && <div className="cards">{visibleApplications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <p className="notes">{application.notes}</p>}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => handleDetailsOpen(application.id)} disabled={isDetailsLoading || deletingId === application.id}>View details</button><button type="button" className="ghost-button" onClick={() => handleEditStart(application)} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
+        {visibleApplications.length > 0 && <div className="cards">{visibleApplications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <FormattedText content={application.notes} className="notes" />}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => handleDetailsOpen(application.id)} disabled={isDetailsLoading || deletingId === application.id}>View details</button><button type="button" className="ghost-button" onClick={() => handleEditStart(application)} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
       </section>
     </section>}
   </main>;

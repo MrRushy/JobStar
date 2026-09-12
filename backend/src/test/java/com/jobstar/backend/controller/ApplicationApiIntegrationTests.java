@@ -191,6 +191,56 @@ class ApplicationApiIntegrationTests {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void signedInUserCanManageContactsForTheirApplication() throws Exception {
+        MockHttpSession session = register("user@example.com");
+        String applicationId = createApplication(session, "Acme", "Developer");
+
+        MvcResult createResult = mockMvc.perform(post("/api/applications/{applicationId}/contacts", applicationId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Sam Lee", "role":"Recruiter", "email":"sam@example.com", "profileUrl":"https://linkedin.com/in/samlee", "notes":"Met at the career fair."}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Sam Lee"))
+                .andExpect(jsonPath("$.role").value("Recruiter"))
+                .andReturn();
+
+        String contactId = com.jayway.jsonpath.JsonPath.read(
+                createResult.getResponse().getContentAsString(), "$.id").toString();
+
+        mockMvc.perform(get("/api/applications/{applicationId}/contacts", applicationId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].email").value("sam@example.com"));
+
+        mockMvc.perform(put("/api/applications/{applicationId}/contacts/{contactId}", applicationId, contactId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Sam Lee", "role":"Senior Recruiter", "email":"sam@example.com"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("Senior Recruiter"));
+
+        mockMvc.perform(delete("/api/applications/{applicationId}/contacts/{contactId}", applicationId, contactId)
+                        .session(session)
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void userCannotAccessAnotherUsersContacts() throws Exception {
+        MockHttpSession firstSession = register("first@example.com");
+        MockHttpSession secondSession = register("second@example.com");
+        String applicationId = createApplication(firstSession, "Private Company", "Developer");
+
+        mockMvc.perform(get("/api/applications/{applicationId}/contacts", applicationId).session(secondSession))
+                .andExpect(status().isNotFound());
+    }
+
     private MockHttpSession register(String email) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/auth/register")
                         .with(csrf())
