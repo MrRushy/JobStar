@@ -6,8 +6,10 @@ import com.jobstar.backend.model.Application;
 import com.jobstar.backend.model.Contact;
 import com.jobstar.backend.model.UserAccount;
 import com.jobstar.backend.repository.ContactRepository;
+import com.jobstar.backend.repository.FollowUpReminderRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -15,10 +17,13 @@ public class ContactService {
 
     private final ApplicationService applicationService;
     private final ContactRepository contactRepository;
+    private final FollowUpReminderRepository followUpReminderRepository;
 
-    public ContactService(ApplicationService applicationService, ContactRepository contactRepository) {
+    public ContactService(ApplicationService applicationService, ContactRepository contactRepository,
+            FollowUpReminderRepository followUpReminderRepository) {
         this.applicationService = applicationService;
         this.contactRepository = contactRepository;
+        this.followUpReminderRepository = followUpReminderRepository;
     }
 
     public List<Contact> getAllContacts(Long applicationId, UserAccount owner) {
@@ -44,8 +49,11 @@ public class ContactService {
         return contactRepository.save(contact);
     }
 
+    @Transactional
     public void deleteContact(Long applicationId, Long contactId, UserAccount owner) {
-        contactRepository.delete(findContact(contactId, findApplication(applicationId, owner)));
+        Contact contact = findContact(contactId, findApplication(applicationId, owner));
+        followUpReminderRepository.findAllByContact(contact).forEach(reminder -> reminder.setContact(null));
+        contactRepository.delete(contact);
     }
 
     private Application findApplication(Long applicationId, UserAccount owner) {

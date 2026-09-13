@@ -241,6 +241,70 @@ class ApplicationApiIntegrationTests {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void signedInUserCanManageFollowUpReminders() throws Exception {
+        MockHttpSession session = register("user@example.com");
+        String applicationId = createApplication(session, "Acme", "Developer");
+        String contactId = createContact(session, applicationId, "Sam Lee");
+
+        MvcResult createResult = mockMvc.perform(post("/api/applications/{applicationId}/follow-ups", applicationId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"dueDate":"2026-10-20", "description":"Send portfolio follow-up", "contactId":%s}
+                                """.formatted(contactId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.description").value("Send portfolio follow-up"))
+                .andExpect(jsonPath("$.contact.name").value("Sam Lee"))
+                .andReturn();
+
+        String reminderId = com.jayway.jsonpath.JsonPath.read(
+                createResult.getResponse().getContentAsString(), "$.id").toString();
+
+        mockMvc.perform(get("/api/follow-ups").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].application.company").value("Acme"));
+
+        mockMvc.perform(delete("/api/applications/{applicationId}/contacts/{contactId}", applicationId, contactId)
+                        .session(session)
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/applications/{applicationId}/follow-ups", applicationId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].contact").value(org.hamcrest.Matchers.nullValue()));
+
+        mockMvc.perform(put("/api/applications/{applicationId}/follow-ups/{reminderId}", applicationId, reminderId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"dueDate":"2026-10-21", "description":"Send portfolio follow-up", "completed":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.completed").value(true));
+
+        mockMvc.perform(get("/api/follow-ups").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+
+        mockMvc.perform(delete("/api/applications/{applicationId}/follow-ups/{reminderId}", applicationId, reminderId)
+                        .session(session)
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void userCannotAccessAnotherUsersFollowUpReminders() throws Exception {
+        MockHttpSession firstSession = register("first@example.com");
+        MockHttpSession secondSession = register("second@example.com");
+        String applicationId = createApplication(firstSession, "Private Company", "Developer");
+
+        mockMvc.perform(get("/api/applications/{applicationId}/follow-ups", applicationId).session(secondSession))
+                .andExpect(status().isNotFound());
+    }
+
     private MockHttpSession register(String email) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/auth/register")
                         .with(csrf())
@@ -262,6 +326,20 @@ class ApplicationApiIntegrationTests {
                         .content("""
                                 {"company":"%s", "position":"%s"}
                                 """.formatted(company, position)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.id").toString();
+    }
+
+    private String createContact(MockHttpSession session, String applicationId, String name) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/applications/{applicationId}/contacts", applicationId)
+                        .session(session)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"%s"}
+                                """.formatted(name)))
                 .andExpect(status().isCreated())
                 .andReturn();
 

@@ -3,6 +3,7 @@ import "./App.css";
 
 const API_ROOT = "http://localhost:8080/api";
 const APPLICATIONS_URL = `${API_ROOT}/applications`;
+const FOLLOW_UPS_URL = `${API_ROOT}/follow-ups`;
 
 type ApplicationStatus = "SAVED" | "APPLIED" | "INTERVIEWING" | "OFFER" | "REJECTED" | "WITHDRAWN";
 type InterviewType = "PHONE" | "VIDEO" | "ONSITE" | "TECHNICAL" | "OTHER";
@@ -12,6 +13,8 @@ type Interview = { id: number; scheduledAt: string; type: InterviewType; intervi
 type InterviewForm = { scheduledAt: string; type: InterviewType; interviewer: string; notes: string };
 type Contact = { id: number; name: string; role: string | null; email: string | null; profileUrl: string | null; notes: string | null };
 type ContactForm = { name: string; role: string; email: string; profileUrl: string; notes: string };
+type FollowUpReminder = { id: number; dueDate: string; description: string; completed: boolean; contact: Contact | null; application: JobApplication };
+type FollowUpForm = { dueDate: string; description: string; completed: boolean; contactId: string };
 type Account = { id: number; email: string };
 type CredentialsForm = { email: string; password: string };
 type CsrfToken = { headerName: string; token: string };
@@ -20,6 +23,7 @@ type ApplicationSort = "NEWEST" | "OLDEST" | "COMPANY_ASC" | "COMPANY_DESC";
 const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "" };
 const emptyInterviewForm: InterviewForm = { scheduledAt: "", type: "VIDEO", interviewer: "", notes: "" };
 const emptyContactForm: ContactForm = { name: "", role: "", email: "", profileUrl: "", notes: "" };
+const emptyFollowUpForm: FollowUpForm = { dueDate: "", description: "", completed: false, contactId: "" };
 const emptyCredentials: CredentialsForm = { email: "", password: "" };
 const statusLabels: Record<ApplicationStatus, string> = { SAVED: "Saved", APPLIED: "Applied", INTERVIEWING: "Interviewing", OFFER: "Offer", REJECTED: "Rejected", WITHDRAWN: "Withdrawn" };
 const interviewTypeLabels: Record<InterviewType, string> = { PHONE: "Phone", VIDEO: "Video", ONSITE: "Onsite", TECHNICAL: "Technical", OTHER: "Other" };
@@ -46,6 +50,16 @@ function createInterviewForm(interview: Interview): InterviewForm {
 
 function createContactForm(contact: Contact): ContactForm {
   return { name: contact.name, role: contact.role ?? "", email: contact.email ?? "", profileUrl: contact.profileUrl ?? "", notes: contact.notes ?? "" };
+}
+
+function createFollowUpForm(reminder: FollowUpReminder): FollowUpForm {
+  return { dueDate: reminder.dueDate, description: reminder.description, completed: reminder.completed, contactId: reminder.contact?.id.toString() ?? "" };
+}
+
+function isOverdue(dueDate: string) {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return dueDate < today;
 }
 
 function FormattedText({ content, className = "" }: { content: string; className?: string }) {
@@ -91,6 +105,10 @@ function App() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactForm, setContactForm] = useState<ContactForm>(emptyContactForm);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
+  const [followUps, setFollowUps] = useState<FollowUpReminder[]>([]);
+  const [openFollowUps, setOpenFollowUps] = useState<FollowUpReminder[]>([]);
+  const [followUpForm, setFollowUpForm] = useState<FollowUpForm>(emptyFollowUpForm);
+  const [editingFollowUpId, setEditingFollowUpId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -99,6 +117,8 @@ function App() {
   const [deletingInterviewId, setDeletingInterviewId] = useState<number | null>(null);
   const [isContactSubmitting, setIsContactSubmitting] = useState(false);
   const [deletingContactId, setDeletingContactId] = useState<number | null>(null);
+  const [isFollowUpSubmitting, setIsFollowUpSubmitting] = useState(false);
+  const [deletingFollowUpId, setDeletingFollowUpId] = useState<number | null>(null);
   const [copiedEmailId, setCopiedEmailId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -113,7 +133,7 @@ function App() {
         const response = await fetch(`${API_ROOT}/auth/me`, { credentials: "include", signal: controller.signal });
         if (response.status === 401 || !response.ok) return;
         setCurrentUser((await response.json()) as Account);
-        await loadApplications(controller.signal);
+        await Promise.all([loadApplications(controller.signal), loadOpenFollowUps(controller.signal)]);
       } catch (requestError: unknown) {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
       } finally {
@@ -128,6 +148,12 @@ function App() {
     const response = await fetch(APPLICATIONS_URL, { credentials: "include", signal });
     if (!response.ok) throw new Error("Could not load applications.");
     setApplications((await response.json()) as JobApplication[]);
+  }
+
+  async function loadOpenFollowUps(signal?: AbortSignal) {
+    const response = await fetch(FOLLOW_UPS_URL, { credentials: "include", signal });
+    if (!response.ok) throw new Error("Could not load follow-up reminders.");
+    setOpenFollowUps((await response.json()) as FollowUpReminder[]);
   }
 
   async function csrfHeaders() {
@@ -158,6 +184,9 @@ function App() {
     setContacts([]);
     setContactForm(emptyContactForm);
     setEditingContactId(null);
+    setFollowUps([]);
+    setFollowUpForm(emptyFollowUpForm);
+    setEditingFollowUpId(null);
     setDetailsError("");
     setIsDetailsLoading(false);
   }
@@ -177,21 +206,25 @@ function App() {
     setSelectedApplication(null);
     setInterviews([]);
     setContacts([]);
+    setFollowUps([]);
 
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${applicationId}`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not load this application."));
       const application = (await response.json()) as JobApplication;
-      const [interviewsResponse, contactsResponse] = await Promise.all([
+      const [interviewsResponse, contactsResponse, followUpsResponse] = await Promise.all([
         fetch(`${APPLICATIONS_URL}/${applicationId}/interviews`, { credentials: "include" }),
         fetch(`${APPLICATIONS_URL}/${applicationId}/contacts`, { credentials: "include" }),
+        fetch(`${APPLICATIONS_URL}/${applicationId}/follow-ups`, { credentials: "include" }),
       ]);
       if (!interviewsResponse.ok) throw new Error(await responseMessage(interviewsResponse, "Could not load interviews."));
       if (!contactsResponse.ok) throw new Error(await responseMessage(contactsResponse, "Could not load contacts."));
+      if (!followUpsResponse.ok) throw new Error(await responseMessage(followUpsResponse, "Could not load follow-up reminders."));
       if (detailsRequestId.current === requestId) {
         setSelectedApplication(application);
         setInterviews((await interviewsResponse.json()) as Interview[]);
         setContacts((await contactsResponse.json()) as Contact[]);
+        setFollowUps((await followUpsResponse.json()) as FollowUpReminder[]);
       }
     } catch (requestError) {
       if (detailsRequestId.current === requestId) {
@@ -285,6 +318,8 @@ function App() {
       if (!response.ok) throw new Error(await responseMessage(response, "Could not delete this contact."));
       setContacts((current) => current.filter((item) => item.id !== contact.id));
       if (editingContactId === contact.id) resetContactForm();
+      setFollowUps((current) => current.map((reminder) => reminder.contact?.id === contact.id ? { ...reminder, contact: null } : reminder));
+      void loadOpenFollowUps();
     } catch (requestError) {
       setDetailsError(requestError instanceof Error ? requestError.message : "Could not delete this contact.");
     } finally {
@@ -317,6 +352,75 @@ function App() {
     window.setTimeout(() => setCopiedEmailId((current) => current === contactId ? null : current), 1800);
   }
 
+  function resetFollowUpForm() {
+    setFollowUpForm(emptyFollowUpForm);
+    setEditingFollowUpId(null);
+  }
+
+  async function handleFollowUpSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedApplication) return;
+    setIsFollowUpSubmitting(true);
+    setDetailsError("");
+    const isEditing = editingFollowUpId !== null;
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/follow-ups${isEditing ? `/${editingFollowUpId}` : ""}`, {
+        method: isEditing ? "PUT" : "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
+        body: JSON.stringify({ dueDate: followUpForm.dueDate, description: followUpForm.description.trim(), completed: followUpForm.completed, contactId: followUpForm.contactId ? Number(followUpForm.contactId) : null }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not save this follow-up reminder."));
+      const saved = (await response.json()) as FollowUpReminder;
+      setFollowUps((current) => (isEditing ? current.map((reminder) => reminder.id === saved.id ? saved : reminder) : [...current, saved]).sort((first, second) => Number(first.completed) - Number(second.completed) || first.dueDate.localeCompare(second.dueDate)));
+      resetFollowUpForm();
+      void loadOpenFollowUps();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this follow-up reminder.");
+    } finally {
+      setIsFollowUpSubmitting(false);
+    }
+  }
+
+  async function handleFollowUpCompletion(reminder: FollowUpReminder) {
+    if (!selectedApplication) return;
+    setIsFollowUpSubmitting(true);
+    setDetailsError("");
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/follow-ups/${reminder.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
+        body: JSON.stringify({ dueDate: reminder.dueDate, description: reminder.description, completed: !reminder.completed, contactId: reminder.contact?.id ?? null }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not update this follow-up reminder."));
+      const saved = (await response.json()) as FollowUpReminder;
+      setFollowUps((current) => current.map((item) => item.id === saved.id ? saved : item).sort((first, second) => Number(first.completed) - Number(second.completed) || first.dueDate.localeCompare(second.dueDate)));
+      void loadOpenFollowUps();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not update this follow-up reminder.");
+    } finally {
+      setIsFollowUpSubmitting(false);
+    }
+  }
+
+  async function handleFollowUpDelete(reminder: FollowUpReminder) {
+    if (!selectedApplication || !window.confirm("Delete this follow-up reminder? This cannot be undone.")) return;
+    setDeletingFollowUpId(reminder.id);
+    setDetailsError("");
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/follow-ups/${reminder.id}`, { method: "DELETE", credentials: "include", headers: await csrfHeaders() });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not delete this follow-up reminder."));
+      setFollowUps((current) => current.filter((item) => item.id !== reminder.id));
+      if (editingFollowUpId === reminder.id) resetFollowUpForm();
+      void loadOpenFollowUps();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not delete this follow-up reminder.");
+    } finally {
+      setDeletingFollowUpId(null);
+    }
+  }
+
   async function handleAuthentication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsAuthenticating(true);
@@ -326,7 +430,7 @@ function App() {
       if (!response.ok) throw new Error(await responseMessage(response, authMode === "register" ? "Could not create your account." : "Could not log you in."));
       setCurrentUser((await response.json()) as Account);
       setCredentials(emptyCredentials);
-      await loadApplications();
+      await Promise.all([loadApplications(), loadOpenFollowUps()]);
     } catch (requestError) {
       setAuthError(requestError instanceof Error ? requestError.message : "Could not complete that request.");
     } finally { setIsAuthenticating(false); }
@@ -337,7 +441,7 @@ function App() {
     try {
       const response = await fetch(`${API_ROOT}/auth/logout`, { method: "POST", credentials: "include", headers: await csrfHeaders() });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not log you out."));
-      setCurrentUser(null); setApplications([]); resetForm();
+      setCurrentUser(null); setApplications([]); setOpenFollowUps([]); resetForm();
     } catch (requestError) { setAuthError(requestError instanceof Error ? requestError.message : "Could not log you out."); }
   }
 
@@ -415,6 +519,10 @@ function App() {
         <article className="metric-card"><p>Offers</p><strong>{statusCounts.OFFER}</strong><span>Worth celebrating</span></article>
       </div>
       <div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div>
+      <section className="follow-up-overview" aria-labelledby="follow-up-overview-title">
+        <div><p className="dashboard-section-label">Next actions</p><h3 id="follow-up-overview-title">Follow-ups</h3></div><span>{openFollowUps.length} open</span>
+        {openFollowUps.length === 0 ? <p className="follow-up-overview-empty">No open follow-ups. Add one from an application when you have a next step.</p> : <div className="follow-up-overview-list">{openFollowUps.slice(0, 5).map((reminder) => <button type="button" className={`follow-up-overview-item ${isOverdue(reminder.dueDate) ? "is-overdue" : ""}`} key={reminder.id} onClick={() => handleDetailsOpen(reminder.application.id)}><span>{isOverdue(reminder.dueDate) ? "Overdue" : formatAppliedDate(reminder.dueDate)}</span><strong>{reminder.description}</strong><small>{reminder.application.company} - {reminder.application.position}</small></button>)}</div>}
+      </section>
     </section>}
 
     {!isLoading && currentUser && (isDetailsLoading || selectedApplication || detailsError) && <div className="detail-backdrop" onClick={closeDetails}>
@@ -457,6 +565,20 @@ function App() {
                 <label className="full-width">Notes<textarea value={contactForm.notes} onChange={(event) => setContactForm({ ...contactForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setContactForm({ ...contactForm, notes }))} placeholder="How you met, preferred contact method... Use - for bullet points." rows={3} /></label>
               </div>
               <div className="contact-form-actions"><button type="submit" disabled={isContactSubmitting}>{isContactSubmitting ? "Saving..." : editingContactId === null ? "Add contact" : "Update contact"}</button>{editingContactId !== null && <button type="button" className="secondary-button" onClick={resetContactForm} disabled={isContactSubmitting}>Cancel edit</button>}</div>
+            </form>
+          </section>
+          <section className="follow-up-section" aria-labelledby="follow-up-title">
+            <div className="follow-up-heading"><div><p className="detail-label">Next actions</p><h3 id="follow-up-title">Follow-ups</h3></div><span>{followUps.filter((reminder) => !reminder.completed).length} open</span></div>
+            {followUps.length === 0 ? <p className="follow-up-empty">No follow-ups scheduled for this application yet.</p> : <div className="follow-up-list">{followUps.map((reminder) => <article className={`follow-up-card ${reminder.completed ? "is-completed" : ""} ${!reminder.completed && isOverdue(reminder.dueDate) ? "is-overdue" : ""}`} key={reminder.id}><button type="button" className="follow-up-toggle" onClick={() => handleFollowUpCompletion(reminder)} disabled={isFollowUpSubmitting} aria-label={reminder.completed ? "Reopen follow-up" : "Mark follow-up complete"}>{reminder.completed ? "Done" : "Mark done"}</button><div><p>{reminder.completed ? "Completed" : isOverdue(reminder.dueDate) ? "Overdue" : "Due"} {formatAppliedDate(reminder.dueDate)}</p><strong>{reminder.description}</strong>{reminder.contact && <span>Contact: {reminder.contact.name}</span>}</div><div className="follow-up-actions"><button type="button" className="text-button" onClick={() => { setFollowUpForm(createFollowUpForm(reminder)); setEditingFollowUpId(reminder.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleFollowUpDelete(reminder)} disabled={deletingFollowUpId === reminder.id}>{deletingFollowUpId === reminder.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
+            <form className="follow-up-form" onSubmit={handleFollowUpSubmit}>
+              <h4>{editingFollowUpId === null ? "Add a follow-up" : "Update follow-up"}</h4>
+              <div className="follow-up-form-grid">
+                <label>Due date<input type="date" required value={followUpForm.dueDate} onChange={(event) => setFollowUpForm({ ...followUpForm, dueDate: event.target.value })} /></label>
+                <label>Linked contact<select value={followUpForm.contactId} onChange={(event) => setFollowUpForm({ ...followUpForm, contactId: event.target.value })}><option value="">No specific contact</option>{contacts.map((contact) => <option value={contact.id} key={contact.id}>{contact.name}{contact.role ? ` - ${contact.role}` : ""}</option>)}</select></label>
+                <label className="full-width">Next action<textarea required value={followUpForm.description} onChange={(event) => setFollowUpForm({ ...followUpForm, description: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (description) => setFollowUpForm({ ...followUpForm, description }))} placeholder="Email the recruiter after the interview" rows={3} /></label>
+                {editingFollowUpId !== null && <label className="follow-up-complete"><input type="checkbox" checked={followUpForm.completed} onChange={(event) => setFollowUpForm({ ...followUpForm, completed: event.target.checked })} /> Mark as complete</label>}
+              </div>
+              <div className="follow-up-form-actions"><button type="submit" disabled={isFollowUpSubmitting}>{isFollowUpSubmitting ? "Saving..." : editingFollowUpId === null ? "Add follow-up" : "Update follow-up"}</button>{editingFollowUpId !== null && <button type="button" className="secondary-button" onClick={resetFollowUpForm} disabled={isFollowUpSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
           <div className="detail-actions"><button type="button" onClick={() => handleEditStart(selectedApplication)}>Edit application</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(selectedApplication)} disabled={deletingId === selectedApplication.id}>{deletingId === selectedApplication.id ? "Deleting..." : "Delete application"}</button></div>
