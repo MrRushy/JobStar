@@ -44,6 +44,7 @@ public class ApplicationService {
         existingApplication.setJobUrl(updatedApplication.getJobUrl());
         existingApplication.setAppliedDate(updatedApplication.getAppliedDate());
         existingApplication.setNotes(updatedApplication.getNotes());
+        existingApplication.setJobDescription(updatedApplication.getJobDescription());
 
         return applicationRepository.save(existingApplication);
     }
@@ -72,6 +73,7 @@ public class ApplicationService {
         application.setLocation(normalizeOptionalText(application.getLocation()));
         application.setJobUrl(normalizeOptionalText(application.getJobUrl()));
         application.setNotes(normalizeOptionalText(application.getNotes()));
+        application.setJobDescription(normalizeOptionalText(application.getJobDescription()));
 
         if (application.getStatus() == null) {
             application.setStatus(ApplicationStatus.SAVED);
