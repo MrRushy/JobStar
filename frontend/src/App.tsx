@@ -7,8 +7,8 @@ const FOLLOW_UPS_URL = `${API_ROOT}/follow-ups`;
 
 type ApplicationStatus = "SAVED" | "APPLIED" | "INTERVIEWING" | "OFFER" | "REJECTED" | "WITHDRAWN";
 type InterviewType = "PHONE" | "VIDEO" | "ONSITE" | "TECHNICAL" | "OTHER";
-type JobApplication = { id: number; company: string; position: string; status: ApplicationStatus; location: string | null; jobUrl: string | null; appliedDate: string | null; notes: string | null };
-type ApplicationForm = { company: string; position: string; status: ApplicationStatus; location: string; jobUrl: string; appliedDate: string; notes: string };
+type JobApplication = { id: number; company: string; position: string; status: ApplicationStatus; location: string | null; jobUrl: string | null; appliedDate: string | null; notes: string | null; jobDescription: string | null };
+type ApplicationForm = { company: string; position: string; status: ApplicationStatus; location: string; jobUrl: string; appliedDate: string; notes: string; jobDescription: string };
 type Interview = { id: number; scheduledAt: string; type: InterviewType; interviewer: string | null; notes: string | null };
 type InterviewForm = { scheduledAt: string; type: InterviewType; interviewer: string; notes: string };
 type Contact = { id: number; name: string; role: string | null; email: string | null; profileUrl: string | null; notes: string | null };
@@ -20,7 +20,7 @@ type CredentialsForm = { email: string; password: string };
 type CsrfToken = { headerName: string; token: string };
 type ApplicationSort = "NEWEST" | "OLDEST" | "COMPANY_ASC" | "COMPANY_DESC";
 
-const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "" };
+const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "", jobDescription: "" };
 const emptyInterviewForm: InterviewForm = { scheduledAt: "", type: "VIDEO", interviewer: "", notes: "" };
 const emptyContactForm: ContactForm = { name: "", role: "", email: "", profileUrl: "", notes: "" };
 const emptyFollowUpForm: FollowUpForm = { dueDate: "", description: "", completed: false, contactId: "" };
@@ -29,11 +29,11 @@ const statusLabels: Record<ApplicationStatus, string> = { SAVED: "Saved", APPLIE
 const interviewTypeLabels: Record<InterviewType, string> = { PHONE: "Phone", VIDEO: "Video", ONSITE: "Onsite", TECHNICAL: "Technical", OTHER: "Other" };
 
 function createFormFromApplication(application: JobApplication): ApplicationForm {
-  return { company: application.company, position: application.position, status: application.status, location: application.location ?? "", jobUrl: application.jobUrl ?? "", appliedDate: application.appliedDate ?? "", notes: application.notes ?? "" };
+  return { company: application.company, position: application.position, status: application.status, location: application.location ?? "", jobUrl: application.jobUrl ?? "", appliedDate: application.appliedDate ?? "", notes: application.notes ?? "", jobDescription: application.jobDescription ?? "" };
 }
 
 function createRequestBody(form: ApplicationForm) {
-  return { company: form.company.trim(), position: form.position.trim(), status: form.status, location: form.location.trim() || null, jobUrl: form.jobUrl.trim() || null, appliedDate: form.appliedDate || null, notes: form.notes.trim() || null };
+  return { company: form.company.trim(), position: form.position.trim(), status: form.status, location: form.location.trim() || null, jobUrl: form.jobUrl.trim() || null, appliedDate: form.appliedDate || null, notes: form.notes.trim() || null, jobDescription: form.jobDescription.trim() || null };
 }
 
 function formatAppliedDate(date: string | null) {
@@ -538,6 +538,11 @@ function App() {
             <div className="detail-notes"><p>Notes</p>{selectedApplication.notes ? <FormattedText content={selectedApplication.notes} /> : <strong>No notes yet.</strong>}</div>
             <div><p>Job posting</p>{selectedApplication.jobUrl ? <a href={selectedApplication.jobUrl} target="_blank" rel="noreferrer">Open posting</a> : <strong>Not saved</strong>}</div>
           </div>
+          <section className="job-description-section" aria-labelledby="job-description-title">
+            <div><p className="detail-label">Source material</p><h3 id="job-description-title">Job description</h3></div>
+            {selectedApplication.jobDescription ? <FormattedText content={selectedApplication.jobDescription} className="job-description-content" /> : <p className="job-description-empty">No job description saved yet. Paste it below so the role details stay available even if the posting closes.</p>}
+            <button type="button" className="job-description-edit" onClick={() => handleEditStart(selectedApplication)}>{selectedApplication.jobDescription ? "Edit job description" : "Add job description"}</button>
+          </section>
           <section className="interview-section" aria-labelledby="interview-title">
             <div className="interview-heading"><div><p className="detail-label">Interview plan</p><h3 id="interview-title">Interviews</h3></div><span>{interviews.length}</span></div>
             {interviews.length === 0 ? <p className="interview-empty">No interviews scheduled yet.</p> : <div className="interview-list">{interviews.map((interview) => <article className="interview-card" key={interview.id}><div><p className="interview-date">{formatInterviewDateTime(interview.scheduledAt)}</p><strong>{interviewTypeLabels[interview.type]} interview</strong>{interview.interviewer && <span>With {interview.interviewer}</span>}{interview.notes && <FormattedText content={interview.notes} className="interview-notes" />}</div><div className="interview-actions"><button type="button" className="text-button" onClick={() => { setInterviewForm(createInterviewForm(interview)); setEditingInterviewId(interview.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleInterviewDelete(interview)} disabled={deletingInterviewId === interview.id}>{deletingInterviewId === interview.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
@@ -597,6 +602,7 @@ function App() {
           <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="New York, NY" /></label>
           <label>Job link<input type="url" value={form.jobUrl} onChange={(event) => setForm({ ...form, jobUrl: event.target.value })} placeholder="https://..." /></label>
           <label className="full-width">Notes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setForm({ ...form, notes }))} placeholder="What makes this role interesting? Use - for bullet points." rows={4} /></label>
+          <label className="full-width">Job description<textarea value={form.jobDescription} onChange={(event) => setForm({ ...form, jobDescription: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (jobDescription) => setForm({ ...form, jobDescription }))} placeholder="Paste the posting details, responsibilities, requirements, compensation, and benefits here. Use - for bullet points." rows={8} /></label>
         </div>
         <div className="form-actions"><button type="submit" disabled={isSubmitting}>{isSubmitting ? editingId === null ? "Saving..." : "Updating..." : editingId === null ? "Save application" : "Update application"}</button>{editingId !== null && <button type="button" className="secondary-button" onClick={resetForm} disabled={isSubmitting}>Cancel edit</button>}</div>
       </form>

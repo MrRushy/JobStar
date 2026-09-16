@@ -39,6 +39,9 @@ public class Application {
     @Column(length = 2000)
     private String notes;
 
+    @Column(length = 12000)
+    private String jobDescription;
+
     @JsonIgnore
     @ManyToOne
     @JoinColumn(name = "user_id")
@@ -117,6 +120,14 @@ public class Application {
 
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    public String getJobDescription() {
+        return jobDescription;
+    }
+
+    public void setJobDescription(String jobDescription) {
+        this.jobDescription = jobDescription;
     }
 
     public UserAccount getOwner() {

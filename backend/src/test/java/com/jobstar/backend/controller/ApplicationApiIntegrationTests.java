@@ -56,11 +56,12 @@ class ApplicationApiIntegrationTests {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"company":"Acme", "position":"Developer", "status":"APPLIED"}
+                                {"company":"Acme", "position":"Developer", "status":"APPLIED", "jobDescription":"Build reliable web applications."}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.company").value("Acme"))
-                .andExpect(jsonPath("$.position").value("Developer"));
+                .andExpect(jsonPath("$.position").value("Developer"))
+                .andExpect(jsonPath("$.jobDescription").value("Build reliable web applications."));
 
         mockMvc.perform(get("/api/applications").session(session))
                 .andExpect(status().isOk())
