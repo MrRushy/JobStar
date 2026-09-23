@@ -59,6 +59,10 @@ public class Application {
     @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
     private List<FollowUpReminder> followUpReminders = new ArrayList<>();
 
+    @JsonIgnore
+    @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
+    private List<ResumeVersion> resumeVersions = new ArrayList<>();
+
     public Application() {
     }
 
