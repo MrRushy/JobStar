@@ -487,6 +487,111 @@ h1 {
   background: var(--forest);
 }
 
+.resume-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.resume-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.resume-heading h3,
+.resume-form h4 {
+  margin: 0;
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+  font-size: 1.15rem;
+}
+
+.resume-heading > span {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--coral);
+  color: #fffdf7;
+  font-family: "DM Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.resume-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.resume-list {
+  display: grid;
+  gap: 8px;
+}
+
+.resume-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 16px;
+  border-left: 3px solid var(--coral);
+  background: #fae9e2;
+}
+
+.resume-card strong,
+.resume-card a {
+  display: block;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.resume-card a {
+  margin-top: 4px;
+  color: var(--forest);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.resume-notes {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.resume-actions {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+}
+
+.resume-form {
+  margin-top: 16px;
+  padding: 18px;
+  background: #f7eed6;
+}
+
+.resume-form h4 {
+  margin-bottom: 14px;
+}
+
+.resume-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.resume-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .interview-section {
   margin-top: 28px;
   padding-top: 24px;
@@ -1294,12 +1399,14 @@ h3 {
   .detail-actions,
   .interview-form-grid,
   .contact-form-grid,
-  .follow-up-form-grid {
+  .follow-up-form-grid,
+  .resume-form-grid {
     grid-template-columns: 1fr;
   }
 
   .interview-card,
   .contact-card,
+  .resume-card,
   .follow-up-card {
     flex-direction: column;
   }

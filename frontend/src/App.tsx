@@ -13,6 +13,8 @@ type Interview = { id: number; scheduledAt: string; type: InterviewType; intervi
 type InterviewForm = { scheduledAt: string; type: InterviewType; interviewer: string; notes: string };
 type Contact = { id: number; name: string; role: string | null; email: string | null; profileUrl: string | null; notes: string | null };
 type ContactForm = { name: string; role: string; email: string; profileUrl: string; notes: string };
+type ResumeVersion = { id: number; label: string; documentUrl: string | null; notes: string | null };
+type ResumeVersionForm = { label: string; documentUrl: string; notes: string };
 type FollowUpReminder = { id: number; dueDate: string; description: string; completed: boolean; contact: Contact | null; application: JobApplication };
 type FollowUpForm = { dueDate: string; description: string; completed: boolean; contactId: string };
 type Account = { id: number; email: string };
@@ -23,6 +25,7 @@ type ApplicationSort = "NEWEST" | "OLDEST" | "COMPANY_ASC" | "COMPANY_DESC";
 const emptyForm: ApplicationForm = { company: "", position: "", status: "SAVED", location: "", jobUrl: "", appliedDate: "", notes: "", jobDescription: "" };
 const emptyInterviewForm: InterviewForm = { scheduledAt: "", type: "VIDEO", interviewer: "", notes: "" };
 const emptyContactForm: ContactForm = { name: "", role: "", email: "", profileUrl: "", notes: "" };
+const emptyResumeVersionForm: ResumeVersionForm = { label: "", documentUrl: "", notes: "" };
 const emptyFollowUpForm: FollowUpForm = { dueDate: "", description: "", completed: false, contactId: "" };
 const emptyCredentials: CredentialsForm = { email: "", password: "" };
 const statusLabels: Record<ApplicationStatus, string> = { SAVED: "Saved", APPLIED: "Applied", INTERVIEWING: "Interviewing", OFFER: "Offer", REJECTED: "Rejected", WITHDRAWN: "Withdrawn" };
@@ -50,6 +53,10 @@ function createInterviewForm(interview: Interview): InterviewForm {
 
 function createContactForm(contact: Contact): ContactForm {
   return { name: contact.name, role: contact.role ?? "", email: contact.email ?? "", profileUrl: contact.profileUrl ?? "", notes: contact.notes ?? "" };
+}
+
+function createResumeVersionForm(resumeVersion: ResumeVersion): ResumeVersionForm {
+  return { label: resumeVersion.label, documentUrl: resumeVersion.documentUrl ?? "", notes: resumeVersion.notes ?? "" };
 }
 
 function createFollowUpForm(reminder: FollowUpReminder): FollowUpForm {
@@ -105,6 +112,9 @@ function App() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactForm, setContactForm] = useState<ContactForm>(emptyContactForm);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
+  const [resumeVersions, setResumeVersions] = useState<ResumeVersion[]>([]);
+  const [resumeVersionForm, setResumeVersionForm] = useState<ResumeVersionForm>(emptyResumeVersionForm);
+  const [editingResumeVersionId, setEditingResumeVersionId] = useState<number | null>(null);
   const [followUps, setFollowUps] = useState<FollowUpReminder[]>([]);
   const [openFollowUps, setOpenFollowUps] = useState<FollowUpReminder[]>([]);
   const [followUpForm, setFollowUpForm] = useState<FollowUpForm>(emptyFollowUpForm);
@@ -117,6 +127,8 @@ function App() {
   const [deletingInterviewId, setDeletingInterviewId] = useState<number | null>(null);
   const [isContactSubmitting, setIsContactSubmitting] = useState(false);
   const [deletingContactId, setDeletingContactId] = useState<number | null>(null);
+  const [isResumeVersionSubmitting, setIsResumeVersionSubmitting] = useState(false);
+  const [deletingResumeVersionId, setDeletingResumeVersionId] = useState<number | null>(null);
   const [isFollowUpSubmitting, setIsFollowUpSubmitting] = useState(false);
   const [deletingFollowUpId, setDeletingFollowUpId] = useState<number | null>(null);
   const [copiedEmailId, setCopiedEmailId] = useState<number | null>(null);
@@ -184,6 +196,9 @@ function App() {
     setContacts([]);
     setContactForm(emptyContactForm);
     setEditingContactId(null);
+    setResumeVersions([]);
+    setResumeVersionForm(emptyResumeVersionForm);
+    setEditingResumeVersionId(null);
     setFollowUps([]);
     setFollowUpForm(emptyFollowUpForm);
     setEditingFollowUpId(null);
@@ -206,25 +221,29 @@ function App() {
     setSelectedApplication(null);
     setInterviews([]);
     setContacts([]);
+    setResumeVersions([]);
     setFollowUps([]);
 
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${applicationId}`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not load this application."));
       const application = (await response.json()) as JobApplication;
-      const [interviewsResponse, contactsResponse, followUpsResponse] = await Promise.all([
+      const [interviewsResponse, contactsResponse, followUpsResponse, resumeVersionsResponse] = await Promise.all([
         fetch(`${APPLICATIONS_URL}/${applicationId}/interviews`, { credentials: "include" }),
         fetch(`${APPLICATIONS_URL}/${applicationId}/contacts`, { credentials: "include" }),
         fetch(`${APPLICATIONS_URL}/${applicationId}/follow-ups`, { credentials: "include" }),
+        fetch(`${APPLICATIONS_URL}/${applicationId}/resumes`, { credentials: "include" }),
       ]);
       if (!interviewsResponse.ok) throw new Error(await responseMessage(interviewsResponse, "Could not load interviews."));
       if (!contactsResponse.ok) throw new Error(await responseMessage(contactsResponse, "Could not load contacts."));
       if (!followUpsResponse.ok) throw new Error(await responseMessage(followUpsResponse, "Could not load follow-up reminders."));
+      if (!resumeVersionsResponse.ok) throw new Error(await responseMessage(resumeVersionsResponse, "Could not load resume versions."));
       if (detailsRequestId.current === requestId) {
         setSelectedApplication(application);
         setInterviews((await interviewsResponse.json()) as Interview[]);
         setContacts((await contactsResponse.json()) as Contact[]);
         setFollowUps((await followUpsResponse.json()) as FollowUpReminder[]);
+        setResumeVersions((await resumeVersionsResponse.json()) as ResumeVersion[]);
       }
     } catch (requestError) {
       if (detailsRequestId.current === requestId) {
@@ -350,6 +369,51 @@ function App() {
 
     setCopiedEmailId(contactId);
     window.setTimeout(() => setCopiedEmailId((current) => current === contactId ? null : current), 1800);
+  }
+
+  function resetResumeVersionForm() {
+    setResumeVersionForm(emptyResumeVersionForm);
+    setEditingResumeVersionId(null);
+  }
+
+  async function handleResumeVersionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedApplication) return;
+    setIsResumeVersionSubmitting(true);
+    setDetailsError("");
+    const isEditing = editingResumeVersionId !== null;
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/resumes${isEditing ? `/${editingResumeVersionId}` : ""}`, {
+        method: isEditing ? "PUT" : "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
+        body: JSON.stringify({ label: resumeVersionForm.label.trim(), documentUrl: resumeVersionForm.documentUrl.trim() || null, notes: resumeVersionForm.notes.trim() || null }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not save this resume version."));
+      const saved = (await response.json()) as ResumeVersion;
+      setResumeVersions((current) => isEditing ? current.map((resumeVersion) => resumeVersion.id === saved.id ? saved : resumeVersion) : [saved, ...current]);
+      resetResumeVersionForm();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this resume version.");
+    } finally {
+      setIsResumeVersionSubmitting(false);
+    }
+  }
+
+  async function handleResumeVersionDelete(resumeVersion: ResumeVersion) {
+    if (!selectedApplication || !window.confirm(`Delete ${resumeVersion.label}? This cannot be undone.`)) return;
+    setDeletingResumeVersionId(resumeVersion.id);
+    setDetailsError("");
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/resumes/${resumeVersion.id}`, { method: "DELETE", credentials: "include", headers: await csrfHeaders() });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not delete this resume version."));
+      setResumeVersions((current) => current.filter((item) => item.id !== resumeVersion.id));
+      if (editingResumeVersionId === resumeVersion.id) resetResumeVersionForm();
+    } catch (requestError) {
+      setDetailsError(requestError instanceof Error ? requestError.message : "Could not delete this resume version.");
+    } finally {
+      setDeletingResumeVersionId(null);
+    }
   }
 
   function resetFollowUpForm() {
@@ -542,6 +606,19 @@ function App() {
             <div><p className="detail-label">Source material</p><h3 id="job-description-title">Job description</h3></div>
             {selectedApplication.jobDescription ? <FormattedText content={selectedApplication.jobDescription} className="job-description-content" /> : <p className="job-description-empty">No job description saved yet. Paste it below so the role details stay available even if the posting closes.</p>}
             <button type="button" className="job-description-edit" onClick={() => handleEditStart(selectedApplication)}>{selectedApplication.jobDescription ? "Edit job description" : "Add job description"}</button>
+          </section>
+          <section className="resume-section" aria-labelledby="resume-title">
+            <div className="resume-heading"><div><p className="detail-label">Application materials</p><h3 id="resume-title">Resume versions</h3></div><span>{resumeVersions.length}</span></div>
+            {resumeVersions.length === 0 ? <p className="resume-empty">No resume version saved yet. Record the version tailored for this application.</p> : <div className="resume-list">{resumeVersions.map((resumeVersion) => <article className="resume-card" key={resumeVersion.id}><div><strong>{resumeVersion.label}</strong>{resumeVersion.documentUrl && <a href={resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document</a>}{resumeVersion.notes && <FormattedText content={resumeVersion.notes} className="resume-notes" />}</div><div className="resume-actions"><button type="button" className="text-button" onClick={() => { setResumeVersionForm(createResumeVersionForm(resumeVersion)); setEditingResumeVersionId(resumeVersion.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleResumeVersionDelete(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>{deletingResumeVersionId === resumeVersion.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
+            <form className="resume-form" onSubmit={handleResumeVersionSubmit}>
+              <h4>{editingResumeVersionId === null ? "Add a resume version" : "Update resume version"}</h4>
+              <div className="resume-form-grid">
+                <label>Version label<input required value={resumeVersionForm.label} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, label: event.target.value })} placeholder="Software Resume - September 2026" /></label>
+                <label>Document link<input type="url" value={resumeVersionForm.documentUrl} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, documentUrl: event.target.value })} placeholder="https://drive.google.com/..." /></label>
+                <label className="full-width">Tailoring notes<textarea value={resumeVersionForm.notes} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setResumeVersionForm({ ...resumeVersionForm, notes }))} placeholder="Skills emphasized, sections adjusted... Use - for bullet points." rows={3} /></label>
+              </div>
+              <div className="resume-form-actions"><button type="submit" disabled={isResumeVersionSubmitting}>{isResumeVersionSubmitting ? "Saving..." : editingResumeVersionId === null ? "Add resume version" : "Update resume version"}</button>{editingResumeVersionId !== null && <button type="button" className="secondary-button" onClick={resetResumeVersionForm} disabled={isResumeVersionSubmitting}>Cancel edit</button>}</div>
+            </form>
           </section>
           <section className="interview-section" aria-labelledby="interview-title">
             <div className="interview-heading"><div><p className="detail-label">Interview plan</p><h3 id="interview-title">Interviews</h3></div><span>{interviews.length}</span></div>
