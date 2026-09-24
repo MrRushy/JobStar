@@ -39,6 +39,10 @@ function createRequestBody(form: ApplicationForm) {
   return { company: form.company.trim(), position: form.position.trim(), status: form.status, location: form.location.trim() || null, jobUrl: form.jobUrl.trim() || null, appliedDate: form.appliedDate || null, notes: form.notes.trim() || null, jobDescription: form.jobDescription.trim() || null };
 }
 
+function isBlank(value: string) {
+  return value.trim().length === 0;
+}
+
 function formatAppliedDate(date: string | null) {
   return date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${date}T00:00:00`)) : null;
 }
@@ -136,6 +140,10 @@ function App() {
   const [error, setError] = useState("");
   const [authError, setAuthError] = useState("");
   const [detailsError, setDetailsError] = useState("");
+  const [interviewError, setInterviewError] = useState("");
+  const [contactError, setContactError] = useState("");
+  const [resumeVersionError, setResumeVersionError] = useState("");
+  const [followUpError, setFollowUpError] = useState("");
   const detailsRequestId = useRef(0);
 
   useEffect(() => {
@@ -203,6 +211,10 @@ function App() {
     setFollowUpForm(emptyFollowUpForm);
     setEditingFollowUpId(null);
     setDetailsError("");
+    setInterviewError("");
+    setContactError("");
+    setResumeVersionError("");
+    setFollowUpError("");
     setIsDetailsLoading(false);
   }
 
@@ -257,13 +269,19 @@ function App() {
   function resetInterviewForm() {
     setInterviewForm(emptyInterviewForm);
     setEditingInterviewId(null);
+    setInterviewError("");
   }
 
   async function handleInterviewSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedApplication) return;
+    if (!interviewForm.scheduledAt) {
+      setInterviewError("Choose an interview date and time.");
+      return;
+    }
     setIsInterviewSubmitting(true);
     setDetailsError("");
+    setInterviewError("");
     const isEditing = editingInterviewId !== null;
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/interviews${isEditing ? `/${editingInterviewId}` : ""}`, {
@@ -277,7 +295,7 @@ function App() {
       setInterviews((current) => (isEditing ? current.map((interview) => interview.id === saved.id ? saved : interview) : [...current, saved]).sort((first, second) => first.scheduledAt.localeCompare(second.scheduledAt)));
       resetInterviewForm();
     } catch (requestError) {
-      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this interview.");
+      setInterviewError(requestError instanceof Error ? requestError.message : "Could not save this interview.");
     } finally {
       setIsInterviewSubmitting(false);
     }
@@ -302,13 +320,19 @@ function App() {
   function resetContactForm() {
     setContactForm(emptyContactForm);
     setEditingContactId(null);
+    setContactError("");
   }
 
   async function handleContactSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedApplication) return;
+    if (isBlank(contactForm.name)) {
+      setContactError("Enter a contact name.");
+      return;
+    }
     setIsContactSubmitting(true);
     setDetailsError("");
+    setContactError("");
     const isEditing = editingContactId !== null;
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/contacts${isEditing ? `/${editingContactId}` : ""}`, {
@@ -322,7 +346,7 @@ function App() {
       setContacts((current) => (isEditing ? current.map((contact) => contact.id === saved.id ? saved : contact) : [...current, saved]).sort((first, second) => first.name.localeCompare(second.name)));
       resetContactForm();
     } catch (requestError) {
-      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this contact.");
+      setContactError(requestError instanceof Error ? requestError.message : "Could not save this contact.");
     } finally {
       setIsContactSubmitting(false);
     }
@@ -374,13 +398,19 @@ function App() {
   function resetResumeVersionForm() {
     setResumeVersionForm(emptyResumeVersionForm);
     setEditingResumeVersionId(null);
+    setResumeVersionError("");
   }
 
   async function handleResumeVersionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedApplication) return;
+    if (isBlank(resumeVersionForm.label)) {
+      setResumeVersionError("Add a label for this resume version.");
+      return;
+    }
     setIsResumeVersionSubmitting(true);
     setDetailsError("");
+    setResumeVersionError("");
     const isEditing = editingResumeVersionId !== null;
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/resumes${isEditing ? `/${editingResumeVersionId}` : ""}`, {
@@ -394,7 +424,7 @@ function App() {
       setResumeVersions((current) => isEditing ? current.map((resumeVersion) => resumeVersion.id === saved.id ? saved : resumeVersion) : [saved, ...current]);
       resetResumeVersionForm();
     } catch (requestError) {
-      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this resume version.");
+      setResumeVersionError(requestError instanceof Error ? requestError.message : "Could not save this resume version.");
     } finally {
       setIsResumeVersionSubmitting(false);
     }
@@ -419,13 +449,19 @@ function App() {
   function resetFollowUpForm() {
     setFollowUpForm(emptyFollowUpForm);
     setEditingFollowUpId(null);
+    setFollowUpError("");
   }
 
   async function handleFollowUpSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedApplication) return;
+    if (!followUpForm.dueDate || isBlank(followUpForm.description)) {
+      setFollowUpError("Choose a due date and describe the next action.");
+      return;
+    }
     setIsFollowUpSubmitting(true);
     setDetailsError("");
+    setFollowUpError("");
     const isEditing = editingFollowUpId !== null;
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/follow-ups${isEditing ? `/${editingFollowUpId}` : ""}`, {
@@ -440,7 +476,7 @@ function App() {
       resetFollowUpForm();
       void loadOpenFollowUps();
     } catch (requestError) {
-      setDetailsError(requestError instanceof Error ? requestError.message : "Could not save this follow-up reminder.");
+      setFollowUpError(requestError instanceof Error ? requestError.message : "Could not save this follow-up reminder.");
     } finally {
       setIsFollowUpSubmitting(false);
     }
@@ -487,10 +523,19 @@ function App() {
 
   async function handleAuthentication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const email = credentials.email.trim();
+    if (!email || !credentials.password) {
+      setAuthError("Enter your email and password.");
+      return;
+    }
+    if (authMode === "register" && credentials.password.length < 12) {
+      setAuthError("Choose a password with at least 12 characters.");
+      return;
+    }
     setIsAuthenticating(true);
     setAuthError("");
     try {
-      const response = await fetch(`${API_ROOT}/auth/${authMode}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) }, body: JSON.stringify(credentials) });
+      const response = await fetch(`${API_ROOT}/auth/${authMode}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) }, body: JSON.stringify({ ...credentials, email }) });
       if (!response.ok) throw new Error(await responseMessage(response, authMode === "register" ? "Could not create your account." : "Could not log you in."));
       setCurrentUser((await response.json()) as Account);
       setCredentials(emptyCredentials);
@@ -510,16 +555,21 @@ function App() {
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setIsSubmitting(true); setError("");
+    event.preventDefault();
+    if (isBlank(form.company) || isBlank(form.position)) {
+      setError("Enter both a company and position.");
+      return;
+    }
+    setIsSubmitting(true); setError("");
     const isEditing = editingId !== null;
     try {
       const response = await fetch(isEditing ? `${APPLICATIONS_URL}/${editingId}` : APPLICATIONS_URL, { method: isEditing ? "PUT" : "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) }, body: JSON.stringify(createRequestBody(form)) });
-      if (!response.ok) throw new Error();
+      if (!response.ok) throw new Error(await responseMessage(response, isEditing ? "Could not update this application." : "Could not save this application."));
       const saved = (await response.json()) as JobApplication;
       setApplications((current) => isEditing ? current.map((application) => application.id === saved.id ? saved : application) : [saved, ...current]);
       if (selectedApplication?.id === saved.id) setSelectedApplication(saved);
       resetForm();
-    } catch { setError(isEditing ? "Could not update this application. Please try again." : "Could not save this application. Please try again."); }
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : isEditing ? "Could not update this application. Please try again." : "Could not save this application. Please try again."); }
     finally { setIsSubmitting(false); }
   }
 
@@ -532,7 +582,7 @@ function App() {
       setApplications((current) => current.filter((item) => item.id !== application.id));
       if (editingId === application.id) resetForm();
       if (selectedApplication?.id === application.id) closeDetails();
-    } catch { setError("Could not delete this application. Please try again."); }
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not delete this application. Please try again."); }
     finally { setDeletingId(null); }
   }
 
@@ -571,7 +621,7 @@ function App() {
       <form onSubmit={handleAuthentication}><div className="form-grid">
         <label className="full-width">Email<input type="email" required autoComplete="email" value={credentials.email} onChange={(event) => setCredentials({ ...credentials, email: event.target.value })} placeholder="you@example.com" /></label>
         <label className="full-width">Password<input type="password" required minLength={authMode === "register" ? 12 : undefined} autoComplete={authMode === "register" ? "new-password" : "current-password"} value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} placeholder={authMode === "register" ? "At least 12 characters" : "Your password"} /></label>
-      </div>{authError && <p className="message error-message">{authError}</p>}<div className="form-actions"><button type="submit" disabled={isAuthenticating}>{isAuthenticating ? authMode === "register" ? "Creating account..." : "Signing in..." : authMode === "register" ? "Create account" : "Sign in"}</button><button type="button" className="secondary-button" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setAuthError(""); }} disabled={isAuthenticating}>{authMode === "register" ? "I already have an account" : "Create a new account"}</button></div></form>
+      </div>{authError && <p className="message error-message" role="alert">{authError}</p>}<div className="form-actions"><button type="submit" disabled={isAuthenticating}>{isAuthenticating ? authMode === "register" ? "Creating account..." : "Signing in..." : authMode === "register" ? "Create account" : "Sign in"}</button><button type="button" className="secondary-button" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setAuthError(""); }} disabled={isAuthenticating}>{authMode === "register" ? "I already have an account" : "Create a new account"}</button></div></form>
     </section>}
 
     {!isLoading && currentUser && <section className="dashboard" aria-label="Application dashboard">
@@ -593,7 +643,7 @@ function App() {
       <section className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="detail-close" onClick={closeDetails} aria-label="Close application details">Close</button>
         {isDetailsLoading && <p className="message">Loading application details...</p>}
-        {detailsError && <p className="message error-message">{detailsError}</p>}
+        {detailsError && <p className="message error-message" role="alert">{detailsError}</p>}
         {selectedApplication && <>
           <div className="detail-heading"><p className="company">{selectedApplication.company}</p><h2 id="detail-title">{selectedApplication.position}</h2><span className={`status status-${selectedApplication.status.toLowerCase()}`}>{statusLabels[selectedApplication.status]}</span></div>
           <div className="detail-grid">
@@ -613,10 +663,11 @@ function App() {
             <form className="resume-form" onSubmit={handleResumeVersionSubmit}>
               <h4>{editingResumeVersionId === null ? "Add a resume version" : "Update resume version"}</h4>
               <div className="resume-form-grid">
-                <label>Version label<input required value={resumeVersionForm.label} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, label: event.target.value })} placeholder="Software Resume - September 2026" /></label>
+                <label>Version label<input required value={resumeVersionForm.label} onChange={(event) => { setResumeVersionForm({ ...resumeVersionForm, label: event.target.value }); setResumeVersionError(""); }} placeholder="Software Resume - September 2026" /></label>
                 <label>Document link<input type="url" value={resumeVersionForm.documentUrl} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, documentUrl: event.target.value })} placeholder="https://drive.google.com/..." /></label>
                 <label className="full-width">Tailoring notes<textarea value={resumeVersionForm.notes} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setResumeVersionForm({ ...resumeVersionForm, notes }))} placeholder="Skills emphasized, sections adjusted... Use - for bullet points." rows={3} /></label>
               </div>
+              {resumeVersionError && <p className="form-error" role="alert">{resumeVersionError}</p>}
               <div className="resume-form-actions"><button type="submit" disabled={isResumeVersionSubmitting}>{isResumeVersionSubmitting ? "Saving..." : editingResumeVersionId === null ? "Add resume version" : "Update resume version"}</button>{editingResumeVersionId !== null && <button type="button" className="secondary-button" onClick={resetResumeVersionForm} disabled={isResumeVersionSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
@@ -626,11 +677,12 @@ function App() {
             <form className="interview-form" onSubmit={handleInterviewSubmit}>
               <h4>{editingInterviewId === null ? "Schedule an interview" : "Update interview"}</h4>
               <div className="interview-form-grid">
-                <label>Date and time<input type="datetime-local" required value={interviewForm.scheduledAt} onChange={(event) => setInterviewForm({ ...interviewForm, scheduledAt: event.target.value })} /></label>
+                <label>Date and time<input type="datetime-local" required value={interviewForm.scheduledAt} onChange={(event) => { setInterviewForm({ ...interviewForm, scheduledAt: event.target.value }); setInterviewError(""); }} /></label>
                 <label>Type<select value={interviewForm.type} onChange={(event) => setInterviewForm({ ...interviewForm, type: event.target.value as InterviewType })}>{Object.entries(interviewTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                 <label className="full-width">Interviewer<input value={interviewForm.interviewer} onChange={(event) => setInterviewForm({ ...interviewForm, interviewer: event.target.value })} placeholder="Name, recruiter, or panel" /></label>
                 <label className="full-width">Preparation notes<textarea value={interviewForm.notes} onChange={(event) => setInterviewForm({ ...interviewForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setInterviewForm({ ...interviewForm, notes }))} placeholder="Topics to prepare, questions to ask... Use - for bullet points." rows={3} /></label>
               </div>
+              {interviewError && <p className="form-error" role="alert">{interviewError}</p>}
               <div className="interview-form-actions"><button type="submit" disabled={isInterviewSubmitting}>{isInterviewSubmitting ? "Saving..." : editingInterviewId === null ? "Add interview" : "Update interview"}</button>{editingInterviewId !== null && <button type="button" className="secondary-button" onClick={resetInterviewForm} disabled={isInterviewSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
@@ -640,12 +692,13 @@ function App() {
             <form className="contact-form" onSubmit={handleContactSubmit}>
               <h4>{editingContactId === null ? "Add a contact" : "Update contact"}</h4>
               <div className="contact-form-grid">
-                <label>Name<input required value={contactForm.name} onChange={(event) => setContactForm({ ...contactForm, name: event.target.value })} placeholder="Taylor Morgan" /></label>
+                <label>Name<input required value={contactForm.name} onChange={(event) => { setContactForm({ ...contactForm, name: event.target.value }); setContactError(""); }} placeholder="Taylor Morgan" /></label>
                 <label>Role or relationship<input value={contactForm.role} onChange={(event) => setContactForm({ ...contactForm, role: event.target.value })} placeholder="Recruiter" /></label>
                 <label>Email<input type="email" value={contactForm.email} onChange={(event) => setContactForm({ ...contactForm, email: event.target.value })} placeholder="taylor@example.com" /></label>
                 <label>Profile link<input type="url" value={contactForm.profileUrl} onChange={(event) => setContactForm({ ...contactForm, profileUrl: event.target.value })} placeholder="https://linkedin.com/in/..." /></label>
                 <label className="full-width">Notes<textarea value={contactForm.notes} onChange={(event) => setContactForm({ ...contactForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setContactForm({ ...contactForm, notes }))} placeholder="How you met, preferred contact method... Use - for bullet points." rows={3} /></label>
               </div>
+              {contactError && <p className="form-error" role="alert">{contactError}</p>}
               <div className="contact-form-actions"><button type="submit" disabled={isContactSubmitting}>{isContactSubmitting ? "Saving..." : editingContactId === null ? "Add contact" : "Update contact"}</button>{editingContactId !== null && <button type="button" className="secondary-button" onClick={resetContactForm} disabled={isContactSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
@@ -657,9 +710,10 @@ function App() {
               <div className="follow-up-form-grid">
                 <label>Due date<input type="date" required value={followUpForm.dueDate} onChange={(event) => setFollowUpForm({ ...followUpForm, dueDate: event.target.value })} /></label>
                 <label>Linked contact<select value={followUpForm.contactId} onChange={(event) => setFollowUpForm({ ...followUpForm, contactId: event.target.value })}><option value="">No specific contact</option>{contacts.map((contact) => <option value={contact.id} key={contact.id}>{contact.name}{contact.role ? ` - ${contact.role}` : ""}</option>)}</select></label>
-                <label className="full-width">Next action<textarea required value={followUpForm.description} onChange={(event) => setFollowUpForm({ ...followUpForm, description: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (description) => setFollowUpForm({ ...followUpForm, description }))} placeholder="Email the recruiter after the interview" rows={3} /></label>
+                <label className="full-width">Next action<textarea required value={followUpForm.description} onChange={(event) => { setFollowUpForm({ ...followUpForm, description: event.target.value }); setFollowUpError(""); }} onKeyDown={(event) => insertTextareaTab(event, (description) => setFollowUpForm({ ...followUpForm, description }))} placeholder="Email the recruiter after the interview" rows={3} /></label>
                 {editingFollowUpId !== null && <label className="follow-up-complete"><input type="checkbox" checked={followUpForm.completed} onChange={(event) => setFollowUpForm({ ...followUpForm, completed: event.target.checked })} /> Mark as complete</label>}
               </div>
+              {followUpError && <p className="form-error" role="alert">{followUpError}</p>}
               <div className="follow-up-form-actions"><button type="submit" disabled={isFollowUpSubmitting}>{isFollowUpSubmitting ? "Saving..." : editingFollowUpId === null ? "Add follow-up" : "Update follow-up"}</button>{editingFollowUpId !== null && <button type="button" className="secondary-button" onClick={resetFollowUpForm} disabled={isFollowUpSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
@@ -672,8 +726,8 @@ function App() {
       <form className="application-form" onSubmit={handleSubmit}>
         <div className="section-heading"><p className="section-number">02</p><div><h2>{editingId === null ? "Add an opportunity" : "Update an opportunity"}</h2><p>{editingId === null ? "Start with the details you know. You can refine it later." : "Make changes here, then save them back to your tracker."}</p></div></div>
         <div className="form-grid">
-          <label>Company<input required value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="Acme Inc." /></label>
-          <label>Position<input required value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })} placeholder="Junior Software Developer" /></label>
+          <label className={error && isBlank(form.company) ? "is-invalid" : ""}>Company<input required value={form.company} onChange={(event) => { setForm({ ...form, company: event.target.value }); setError(""); }} placeholder="Acme Inc." /></label>
+          <label className={error && isBlank(form.position) ? "is-invalid" : ""}>Position<input required value={form.position} onChange={(event) => { setForm({ ...form, position: event.target.value }); setError(""); }} placeholder="Junior Software Developer" /></label>
           <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as ApplicationStatus })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>Date applied<input type="date" value={form.appliedDate} onChange={(event) => setForm({ ...form, appliedDate: event.target.value })} /></label>
           <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="New York, NY" /></label>
@@ -691,7 +745,7 @@ function App() {
           <label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as ApplicationSort)}><option value="NEWEST">Newest added</option><option value="OLDEST">Oldest added</option><option value="COMPANY_ASC">Company A-Z</option><option value="COMPANY_DESC">Company Z-A</option></select></label>
         </div>}
         {visibleApplications.length > 0 && <div className="summary-row" aria-label="Application status summary">{summaryStatuses.map(([status, label]) => <p className="summary-pill" key={status}><span>{label}</span><strong>{visibleApplications.filter((application) => application.status === status).length}</strong></p>)}</div>}
-        {error && <p className="message error-message">{error}</p>}{applications.length === 0 && <p className="message empty-message">Your saved applications will appear here.</p>}
+        {error && <p className="message error-message" role="alert">{error}</p>}{applications.length === 0 && <p className="message empty-message">Your saved applications will appear here.</p>}
         {applications.length > 0 && visibleApplications.length === 0 && <p className="message empty-message">No applications match these controls.</p>}
         {visibleApplications.length > 0 && <div className="cards">{visibleApplications.map((application) => { const appliedDate = formatAppliedDate(application.appliedDate); return <article className="application-card" key={application.id}><div className="card-content"><div><p className="company">{application.company}</p><h3>{application.position}</h3>{(application.location || appliedDate) && <p className="details">{[application.location, appliedDate].filter(Boolean).join(" | ")}</p>}</div>{application.notes && <FormattedText content={application.notes} className="notes" />}{application.jobUrl && <p className="link-row"><a href={application.jobUrl} target="_blank" rel="noreferrer">View posting</a></p>}</div><div className="card-side"><span className={`status status-${application.status.toLowerCase()}`}>{statusLabels[application.status]}</span><div className="card-actions"><button type="button" className="ghost-button" onClick={() => handleDetailsOpen(application.id)} disabled={isDetailsLoading || deletingId === application.id}>View details</button><button type="button" className="ghost-button" onClick={() => handleEditStart(application)} disabled={isSubmitting || deletingId === application.id}>Edit</button><button type="button" className="ghost-button danger-button" onClick={() => handleDelete(application)} disabled={deletingId === application.id}>{deletingId === application.id ? "Deleting..." : "Delete"}</button></div></div></article>; })}</div>}
       </section>
