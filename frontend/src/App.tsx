@@ -102,9 +102,9 @@ async function responseMessage(response: Response, fallback: string) {
 function App() {
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [form, setForm] = useState<ApplicationForm>(emptyForm);
-  const [credentials, setCredentials] = useState<CredentialsForm>(emptyCredentials);
+  const [loginCredentials, setLoginCredentials] = useState<CredentialsForm>(emptyCredentials);
+  const [registerCredentials, setRegisterCredentials] = useState<CredentialsForm>(emptyCredentials);
   const [currentUser, setCurrentUser] = useState<Account | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "register">("register");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "ALL">("ALL");
   const [sort, setSort] = useState<ApplicationSort>("NEWEST");
@@ -125,7 +125,7 @@ function App() {
   const [editingFollowUpId, setEditingFollowUpId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authenticatingMode, setAuthenticatingMode] = useState<"login" | "register" | null>(null);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [isInterviewSubmitting, setIsInterviewSubmitting] = useState(false);
   const [deletingInterviewId, setDeletingInterviewId] = useState<number | null>(null);
@@ -138,7 +138,8 @@ function App() {
   const [copiedEmailId, setCopiedEmailId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
-  const [authError, setAuthError] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [registerError, setRegisterError] = useState("");
   const [detailsError, setDetailsError] = useState("");
   const [interviewError, setInterviewError] = useState("");
   const [contactError, setContactError] = useState("");
@@ -521,37 +522,41 @@ function App() {
     }
   }
 
-  async function handleAuthentication(event: FormEvent<HTMLFormElement>) {
+  async function handleAuthentication(event: FormEvent<HTMLFormElement>, mode: "login" | "register") {
     event.preventDefault();
+    const credentials = mode === "login" ? loginCredentials : registerCredentials;
+    const setError = mode === "login" ? setLoginError : setRegisterError;
     const email = credentials.email.trim();
     if (!email || !credentials.password) {
-      setAuthError("Enter your email and password.");
+      setError("Enter your email and password.");
       return;
     }
-    if (authMode === "register" && credentials.password.length < 12) {
-      setAuthError("Choose a password with at least 12 characters.");
+    if (mode === "register" && credentials.password.length < 12) {
+      setError("Choose a password with at least 12 characters.");
       return;
     }
-    setIsAuthenticating(true);
-    setAuthError("");
+    setAuthenticatingMode(mode);
+    setError("");
     try {
-      const response = await fetch(`${API_ROOT}/auth/${authMode}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) }, body: JSON.stringify({ ...credentials, email }) });
-      if (!response.ok) throw new Error(await responseMessage(response, authMode === "register" ? "Could not create your account." : "Could not log you in."));
+      const response = await fetch(`${API_ROOT}/auth/${mode}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) }, body: JSON.stringify({ ...credentials, email }) });
+      if (!response.ok) throw new Error(await responseMessage(response, mode === "register" ? "Could not create your account." : "Could not log you in."));
       setCurrentUser((await response.json()) as Account);
-      setCredentials(emptyCredentials);
+      setLoginCredentials(emptyCredentials);
+      setRegisterCredentials(emptyCredentials);
       await Promise.all([loadApplications(), loadOpenFollowUps()]);
     } catch (requestError) {
-      setAuthError(requestError instanceof Error ? requestError.message : "Could not complete that request.");
-    } finally { setIsAuthenticating(false); }
+      setError(requestError instanceof Error ? requestError.message : "Could not complete that request.");
+    } finally { setAuthenticatingMode(null); }
   }
 
   async function handleLogout() {
-    setAuthError("");
+    setLoginError("");
+    setRegisterError("");
     try {
       const response = await fetch(`${API_ROOT}/auth/logout`, { method: "POST", credentials: "include", headers: await csrfHeaders() });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not log you out."));
       setCurrentUser(null); setApplications([]); setOpenFollowUps([]); resetForm();
-    } catch (requestError) { setAuthError(requestError instanceof Error ? requestError.message : "Could not log you out."); }
+    } catch (requestError) { setLoginError(requestError instanceof Error ? requestError.message : "Could not log you out."); }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -616,12 +621,24 @@ function App() {
     </header>
 
     {isLoading && <p className="message">Checking your secure session...</p>}
-    {!isLoading && !currentUser && <section className="auth-panel" aria-label="Account access">
-      <div className="section-heading"><p className="section-number">01</p><div><h2>{authMode === "register" ? "Create your account" : "Welcome back"}</h2><p>{authMode === "register" ? "Your existing applications will be connected to this first account." : "Sign in to access your private application tracker."}</p></div></div>
-      <form onSubmit={handleAuthentication}><div className="form-grid">
-        <label className="full-width">Email<input type="email" required autoComplete="email" value={credentials.email} onChange={(event) => setCredentials({ ...credentials, email: event.target.value })} placeholder="you@example.com" /></label>
-        <label className="full-width">Password<input type="password" required minLength={authMode === "register" ? 12 : undefined} autoComplete={authMode === "register" ? "new-password" : "current-password"} value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} placeholder={authMode === "register" ? "At least 12 characters" : "Your password"} /></label>
-      </div>{authError && <p className="message error-message" role="alert">{authError}</p>}<div className="form-actions"><button type="submit" disabled={isAuthenticating}>{isAuthenticating ? authMode === "register" ? "Creating account..." : "Signing in..." : authMode === "register" ? "Create account" : "Sign in"}</button><button type="button" className="secondary-button" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setAuthError(""); }} disabled={isAuthenticating}>{authMode === "register" ? "I already have an account" : "Create a new account"}</button></div></form>
+    {!isLoading && !currentUser && <section className="auth-section" aria-label="Account access">
+      <div className="auth-intro"><p className="section-number">01</p><p className="eyebrow">Private by design</p><h2>Your job search deserves a home.</h2><p>Sign in to continue your search, or create an account to start tracking every opportunity in one place.</p></div>
+      <div className="auth-panels">
+        <section className="auth-panel auth-panel-login" aria-labelledby="sign-in-title">
+          <p className="auth-kicker">Returning to JobStar</p><h3 id="sign-in-title">Welcome back</h3><p className="auth-description">Sign in to access your private tracker.</p>
+          <form onSubmit={(event) => handleAuthentication(event, "login")}><div className="auth-form-grid">
+            <label>Email<input type="email" required autoComplete="email" value={loginCredentials.email} onChange={(event) => { setLoginCredentials({ ...loginCredentials, email: event.target.value }); setLoginError(""); }} placeholder="you@example.com" /></label>
+            <label>Password<input type="password" required autoComplete="current-password" value={loginCredentials.password} onChange={(event) => { setLoginCredentials({ ...loginCredentials, password: event.target.value }); setLoginError(""); }} placeholder="Your password" /></label>
+          </div>{loginError && <p className="message error-message" role="alert">{loginError}</p>}<div className="form-actions"><button type="submit" disabled={authenticatingMode !== null}>{authenticatingMode === "login" ? "Signing in..." : "Sign in"}</button></div></form>
+        </section>
+        <section className="auth-panel auth-panel-register" aria-labelledby="create-account-title">
+          <p className="auth-kicker">New here?</p><h3 id="create-account-title">Create an account</h3><p className="auth-description">Your existing applications will connect to your first account.</p>
+          <form onSubmit={(event) => handleAuthentication(event, "register")}><div className="auth-form-grid">
+            <label>Email<input type="email" required autoComplete="email" value={registerCredentials.email} onChange={(event) => { setRegisterCredentials({ ...registerCredentials, email: event.target.value }); setRegisterError(""); }} placeholder="you@example.com" /></label>
+            <label>Password <span className="field-hint">12 characters minimum</span><input type="password" required minLength={12} autoComplete="new-password" value={registerCredentials.password} onChange={(event) => { setRegisterCredentials({ ...registerCredentials, password: event.target.value }); setRegisterError(""); }} placeholder="Create a secure password" /></label>
+          </div>{registerError && <p className="message error-message" role="alert">{registerError}</p>}<div className="form-actions"><button type="submit" disabled={authenticatingMode !== null}>{authenticatingMode === "register" ? "Creating account..." : "Create account"}</button></div></form>
+        </section>
+      </div>
     </section>}
 
     {!isLoading && currentUser && <section className="dashboard" aria-label="Application dashboard">
