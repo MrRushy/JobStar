@@ -1078,6 +1078,18 @@ textarea:focus {
   box-shadow: 3px 3px 0 rgba(25, 89, 67, 0.15);
 }
 
+label.is-invalid input {
+  border-color: var(--coral);
+  box-shadow: 3px 3px 0 rgba(231, 104, 72, 0.15);
+}
+
+.form-error {
+  margin: 14px 0 0;
+  color: var(--coral-dark);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .full-width {
   grid-column: 1 / -1;
 }
