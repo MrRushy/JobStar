@@ -80,3 +80,7 @@ The main goals of JobStar are to:
 
 
 - Phase 3 work includes interview tracking, recruiter/contact management, follow-ups, job-description storage, resume versions, improved validation, deployment, and professional documentation.
+
+## Deployment
+
+JobStar is being prepared for deployment with environment-based configuration for the React frontend and Spring Boot backend. The production setup and deployment checklist are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

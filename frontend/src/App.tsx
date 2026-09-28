@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import "./App.css";
 
-const API_ROOT = "http://localhost:8080/api";
+const API_ROOT = import.meta.env.VITE_API_ROOT ?? "http://localhost:8080/api";
 const APPLICATIONS_URL = `${API_ROOT}/applications`;
 const FOLLOW_UPS_URL = `${API_ROOT}/follow-ups`;
 
