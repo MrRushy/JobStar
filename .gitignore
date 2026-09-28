@@ -2,7 +2,8 @@
 .vscode/
 
 # Environment files
-.env
+**/.env*
+!**/.env.example
 
 # OS files
 .DS_Store
