@@ -4,16 +4,17 @@ import "./App.css";
 const API_ROOT = import.meta.env.VITE_API_ROOT ?? "http://localhost:8080/api";
 const APPLICATIONS_URL = `${API_ROOT}/applications`;
 const FOLLOW_UPS_URL = `${API_ROOT}/follow-ups`;
+const RESUMES_URL = `${API_ROOT}/resumes`;
 
 type ApplicationStatus = "SAVED" | "APPLIED" | "INTERVIEWING" | "OFFER" | "REJECTED" | "WITHDRAWN";
 type InterviewType = "PHONE" | "VIDEO" | "ONSITE" | "TECHNICAL" | "OTHER";
-type JobApplication = { id: number; company: string; position: string; status: ApplicationStatus; location: string | null; jobUrl: string | null; appliedDate: string | null; notes: string | null; jobDescription: string | null };
+type JobApplication = { id: number; company: string; position: string; status: ApplicationStatus; location: string | null; jobUrl: string | null; appliedDate: string | null; notes: string | null; jobDescription: string | null; resumeVersion: ResumeVersion | null };
 type ApplicationForm = { company: string; position: string; status: ApplicationStatus; location: string; jobUrl: string; appliedDate: string; notes: string; jobDescription: string };
 type Interview = { id: number; scheduledAt: string; type: InterviewType; interviewer: string | null; notes: string | null };
 type InterviewForm = { scheduledAt: string; type: InterviewType; interviewer: string; notes: string };
 type Contact = { id: number; name: string; role: string | null; email: string | null; profileUrl: string | null; notes: string | null };
 type ContactForm = { name: string; role: string; email: string; profileUrl: string; notes: string };
-type ResumeVersion = { id: number; label: string; documentUrl: string | null; notes: string | null };
+type ResumeVersion = { id: number; label: string; documentUrl: string | null; fileName: string | null; storageKey: string | null; contentType: string | null; fileSize: number | null; notes: string | null; linkedApplications: Array<{ id: number; company: string; position: string }> };
 type ResumeVersionForm = { label: string; documentUrl: string; notes: string };
 type FollowUpReminder = { id: number; dueDate: string; description: string; completed: boolean; contact: Contact | null; application: JobApplication };
 type FollowUpForm = { dueDate: string; description: string; completed: boolean; contactId: string };
@@ -47,6 +48,11 @@ function formatAppliedDate(date: string | null) {
   return date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${date}T00:00:00`)) : null;
 }
 
+function formatFileSize(bytes: number | null) {
+  if (bytes === null) return "";
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 1024 * 1024 ? 1 : 2)} MB`;
+}
+
 function formatInterviewDateTime(dateTime: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(dateTime));
 }
@@ -57,10 +63,6 @@ function createInterviewForm(interview: Interview): InterviewForm {
 
 function createContactForm(contact: Contact): ContactForm {
   return { name: contact.name, role: contact.role ?? "", email: contact.email ?? "", profileUrl: contact.profileUrl ?? "", notes: contact.notes ?? "" };
-}
-
-function createResumeVersionForm(resumeVersion: ResumeVersion): ResumeVersionForm {
-  return { label: resumeVersion.label, documentUrl: resumeVersion.documentUrl ?? "", notes: resumeVersion.notes ?? "" };
 }
 
 function createFollowUpForm(reminder: FollowUpReminder): FollowUpForm {
@@ -119,6 +121,8 @@ function App() {
   const [resumeVersions, setResumeVersions] = useState<ResumeVersion[]>([]);
   const [resumeVersionForm, setResumeVersionForm] = useState<ResumeVersionForm>(emptyResumeVersionForm);
   const [editingResumeVersionId, setEditingResumeVersionId] = useState<number | null>(null);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [isResumeDropActive, setIsResumeDropActive] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpReminder[]>([]);
   const [openFollowUps, setOpenFollowUps] = useState<FollowUpReminder[]>([]);
   const [followUpForm, setFollowUpForm] = useState<FollowUpForm>(emptyFollowUpForm);
@@ -133,6 +137,9 @@ function App() {
   const [deletingContactId, setDeletingContactId] = useState<number | null>(null);
   const [isResumeVersionSubmitting, setIsResumeVersionSubmitting] = useState(false);
   const [deletingResumeVersionId, setDeletingResumeVersionId] = useState<number | null>(null);
+  const [resumePendingDelete, setResumePendingDelete] = useState<ResumeVersion | null>(null);
+  const [dashboardView, setDashboardView] = useState<"dashboard" | "resumes">("dashboard");
+  const [isLibraryResumeFormOpen, setIsLibraryResumeFormOpen] = useState(false);
   const [isFollowUpSubmitting, setIsFollowUpSubmitting] = useState(false);
   const [deletingFollowUpId, setDeletingFollowUpId] = useState<number | null>(null);
   const [copiedEmailId, setCopiedEmailId] = useState<number | null>(null);
@@ -154,7 +161,7 @@ function App() {
         const response = await fetch(`${API_ROOT}/auth/me`, { credentials: "include", signal: controller.signal });
         if (response.status === 401 || !response.ok) return;
         setCurrentUser((await response.json()) as Account);
-        await Promise.all([loadApplications(controller.signal), loadOpenFollowUps(controller.signal)]);
+        await Promise.all([loadApplications(controller.signal), loadOpenFollowUps(controller.signal), loadResumeVersions(controller.signal)]);
       } catch (requestError: unknown) {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
       } finally {
@@ -175,6 +182,12 @@ function App() {
     const response = await fetch(FOLLOW_UPS_URL, { credentials: "include", signal });
     if (!response.ok) throw new Error("Could not load follow-up reminders.");
     setOpenFollowUps((await response.json()) as FollowUpReminder[]);
+  }
+
+  async function loadResumeVersions(signal?: AbortSignal) {
+    const response = await fetch(RESUMES_URL, { credentials: "include", signal });
+    if (!response.ok) throw new Error("Could not load resume library.");
+    setResumeVersions((await response.json()) as ResumeVersion[]);
   }
 
   async function csrfHeaders() {
@@ -205,9 +218,10 @@ function App() {
     setContacts([]);
     setContactForm(emptyContactForm);
     setEditingContactId(null);
-    setResumeVersions([]);
     setResumeVersionForm(emptyResumeVersionForm);
     setEditingResumeVersionId(null);
+    setResumeFile(null);
+    setIsResumeDropActive(false);
     setFollowUps([]);
     setFollowUpForm(emptyFollowUpForm);
     setEditingFollowUpId(null);
@@ -234,29 +248,25 @@ function App() {
     setSelectedApplication(null);
     setInterviews([]);
     setContacts([]);
-    setResumeVersions([]);
     setFollowUps([]);
 
     try {
       const response = await fetch(`${APPLICATIONS_URL}/${applicationId}`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not load this application."));
       const application = (await response.json()) as JobApplication;
-      const [interviewsResponse, contactsResponse, followUpsResponse, resumeVersionsResponse] = await Promise.all([
+      const [interviewsResponse, contactsResponse, followUpsResponse] = await Promise.all([
         fetch(`${APPLICATIONS_URL}/${applicationId}/interviews`, { credentials: "include" }),
         fetch(`${APPLICATIONS_URL}/${applicationId}/contacts`, { credentials: "include" }),
         fetch(`${APPLICATIONS_URL}/${applicationId}/follow-ups`, { credentials: "include" }),
-        fetch(`${APPLICATIONS_URL}/${applicationId}/resumes`, { credentials: "include" }),
       ]);
       if (!interviewsResponse.ok) throw new Error(await responseMessage(interviewsResponse, "Could not load interviews."));
       if (!contactsResponse.ok) throw new Error(await responseMessage(contactsResponse, "Could not load contacts."));
       if (!followUpsResponse.ok) throw new Error(await responseMessage(followUpsResponse, "Could not load follow-up reminders."));
-      if (!resumeVersionsResponse.ok) throw new Error(await responseMessage(resumeVersionsResponse, "Could not load resume versions."));
       if (detailsRequestId.current === requestId) {
         setSelectedApplication(application);
         setInterviews((await interviewsResponse.json()) as Interview[]);
         setContacts((await contactsResponse.json()) as Contact[]);
         setFollowUps((await followUpsResponse.json()) as FollowUpReminder[]);
-        setResumeVersions((await resumeVersionsResponse.json()) as ResumeVersion[]);
       }
     } catch (requestError) {
       if (detailsRequestId.current === requestId) {
@@ -399,14 +409,38 @@ function App() {
   function resetResumeVersionForm() {
     setResumeVersionForm(emptyResumeVersionForm);
     setEditingResumeVersionId(null);
+    setResumeFile(null);
+    setIsResumeDropActive(false);
+    setResumeVersionError("");
+  }
+
+  function selectResumeFile(file: File | null) {
+    if (!file) return;
+    const extension = file.name.split(".").at(-1)?.toLowerCase();
+    if (!extension || !["pdf", "doc", "docx"].includes(extension)) {
+      setResumeVersionError("Choose a PDF, DOC, or DOCX resume file.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setResumeVersionError("Resume files must be 10 MB or smaller.");
+      return;
+    }
+    setResumeFile(file);
     setResumeVersionError("");
   }
 
   async function handleResumeVersionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedApplication) return;
     if (isBlank(resumeVersionForm.label)) {
       setResumeVersionError("Add a label for this resume version.");
+      return;
+    }
+    if (resumeFile && editingResumeVersionId !== null) {
+      setResumeVersionError("Add a new resume version to upload a replacement file.");
+      return;
+    }
+    if (resumeFile && resumeVersionForm.documentUrl.trim()) {
+      setResumeVersionError("Choose either an uploaded file or a document link.");
       return;
     }
     setIsResumeVersionSubmitting(true);
@@ -414,16 +448,23 @@ function App() {
     setResumeVersionError("");
     const isEditing = editingResumeVersionId !== null;
     try {
-      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/resumes${isEditing ? `/${editingResumeVersionId}` : ""}`, {
-        method: isEditing ? "PUT" : "POST",
+      const requestUrl = resumeFile ? `${RESUMES_URL}/upload` : `${RESUMES_URL}${isEditing ? `/${editingResumeVersionId}` : ""}`;
+      const csrf = await csrfHeaders();
+      const body = resumeFile
+        ? (() => { const formData = new FormData(); formData.append("label", resumeVersionForm.label.trim()); formData.append("notes", resumeVersionForm.notes.trim()); formData.append("file", resumeFile); return formData; })()
+        : JSON.stringify({ label: resumeVersionForm.label.trim(), documentUrl: resumeVersionForm.documentUrl.trim() || null, notes: resumeVersionForm.notes.trim() || null });
+      const response = await fetch(requestUrl, {
+        method: resumeFile ? "POST" : isEditing ? "PUT" : "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
-        body: JSON.stringify({ label: resumeVersionForm.label.trim(), documentUrl: resumeVersionForm.documentUrl.trim() || null, notes: resumeVersionForm.notes.trim() || null }),
+        headers: resumeFile ? csrf : { "Content-Type": "application/json", ...csrf },
+        body,
       });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not save this resume version."));
       const saved = (await response.json()) as ResumeVersion;
       setResumeVersions((current) => isEditing ? current.map((resumeVersion) => resumeVersion.id === saved.id ? saved : resumeVersion) : [saved, ...current]);
+      if (!isEditing && selectedApplication) await handleResumeSelection(saved.id);
       resetResumeVersionForm();
+      if (!selectedApplication) setIsLibraryResumeFormOpen(false);
     } catch (requestError) {
       setResumeVersionError(requestError instanceof Error ? requestError.message : "Could not save this resume version.");
     } finally {
@@ -432,18 +473,57 @@ function App() {
   }
 
   async function handleResumeVersionDelete(resumeVersion: ResumeVersion) {
-    if (!selectedApplication || !window.confirm(`Delete ${resumeVersion.label}? This cannot be undone.`)) return;
+    setResumePendingDelete(resumeVersion);
+  }
+
+  function openLibraryResumeForm() {
+    resetResumeVersionForm();
+    setIsLibraryResumeFormOpen(true);
+  }
+
+  function editLibraryResume(resumeVersion: ResumeVersion) {
+    setResumeVersionForm({ label: resumeVersion.label, documentUrl: resumeVersion.documentUrl ?? "", notes: resumeVersion.notes ?? "" });
+    setEditingResumeVersionId(resumeVersion.id);
+    setResumeFile(null);
+    setResumeVersionError("");
+    setIsLibraryResumeFormOpen(true);
+  }
+
+  async function confirmResumeVersionDelete() {
+    if (!resumePendingDelete) return;
+    const resumeVersion = resumePendingDelete;
     setDeletingResumeVersionId(resumeVersion.id);
     setDetailsError("");
     try {
-      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/resumes/${resumeVersion.id}`, { method: "DELETE", credentials: "include", headers: await csrfHeaders() });
+      const unlinkApplications = resumeVersion.linkedApplications.length > 0;
+      const response = await fetch(`${RESUMES_URL}/${resumeVersion.id}${unlinkApplications ? "?unlinkApplications=true" : ""}`, { method: "DELETE", credentials: "include", headers: await csrfHeaders() });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not delete this resume version."));
       setResumeVersions((current) => current.filter((item) => item.id !== resumeVersion.id));
-      if (editingResumeVersionId === resumeVersion.id) resetResumeVersionForm();
+      setApplications((current) => current.map((application) => application.resumeVersion?.id === resumeVersion.id ? { ...application, resumeVersion: null } : application));
+      setSelectedApplication((current) => current?.resumeVersion?.id === resumeVersion.id ? { ...current, resumeVersion: null } : current);
+      setResumePendingDelete(null);
     } catch (requestError) {
       setDetailsError(requestError instanceof Error ? requestError.message : "Could not delete this resume version.");
     } finally {
       setDeletingResumeVersionId(null);
+    }
+  }
+
+  async function handleResumeSelection(resumeVersionId: number | null) {
+    if (!selectedApplication) return;
+    setResumeVersionError("");
+    try {
+      const response = await fetch(`${APPLICATIONS_URL}/${selectedApplication.id}/resume`, {
+        method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) },
+        body: JSON.stringify({ resumeVersionId }),
+      });
+      if (!response.ok) throw new Error(await responseMessage(response, "Could not update the selected resume."));
+      const saved = (await response.json()) as JobApplication;
+      setSelectedApplication(saved);
+      setApplications((current) => current.map((application) => application.id === saved.id ? saved : application));
+      await loadResumeVersions();
+    } catch (requestError) {
+      setResumeVersionError(requestError instanceof Error ? requestError.message : "Could not update the selected resume.");
     }
   }
 
@@ -642,18 +722,10 @@ function App() {
     </section>}
 
     {!isLoading && currentUser && <section className="dashboard" aria-label="Application dashboard">
-      <div className="dashboard-heading"><div><p className="eyebrow">Dashboard</p><h2>Your search at a glance</h2><p>Live totals from every application in your tracker.</p></div><p className="dashboard-note">{applications.length === 0 ? "Add your first opportunity to start building a picture." : "Keep adding applications to make these totals more useful."}</p></div>
-      <div className="metric-grid">
-        <article className="metric-card metric-card-total"><p>Total tracked</p><strong>{applications.length}</strong><span>Every opportunity</span></article>
-        <article className="metric-card"><p>Saved / to apply</p><strong>{statusCounts.SAVED}</strong><span>Ready for your next step</span></article>
-        <article className="metric-card"><p>Interviews</p><strong>{statusCounts.INTERVIEWING}</strong><span>Moving forward</span></article>
-        <article className="metric-card"><p>Offers</p><strong>{statusCounts.OFFER}</strong><span>Worth celebrating</span></article>
-      </div>
-      <div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div>
-      <section className="follow-up-overview" aria-labelledby="follow-up-overview-title">
-        <div><p className="dashboard-section-label">Next actions</p><h3 id="follow-up-overview-title">Follow-ups</h3></div><span>{openFollowUps.length} open</span>
-        {openFollowUps.length === 0 ? <p className="follow-up-overview-empty">No open follow-ups. Add one from an application when you have a next step.</p> : <div className="follow-up-overview-list">{openFollowUps.slice(0, 5).map((reminder) => <button type="button" className={`follow-up-overview-item ${isOverdue(reminder.dueDate) ? "is-overdue" : ""}`} key={reminder.id} onClick={() => handleDetailsOpen(reminder.application.id)}><span>{isOverdue(reminder.dueDate) ? "Overdue" : formatAppliedDate(reminder.dueDate)}</span><strong>{reminder.description}</strong><small>{reminder.application.company} - {reminder.application.position}</small></button>)}</div>}
-      </section>
+      <div className="dashboard-view-switch" role="tablist" aria-label="Dashboard views"><button type="button" className={dashboardView === "dashboard" ? "is-active" : ""} onClick={() => setDashboardView("dashboard")}>Dashboard</button><button type="button" className={dashboardView === "resumes" ? "is-active" : ""} onClick={() => setDashboardView("resumes")}>Resume library <span>{resumeVersions.length}</span></button></div>
+      {dashboardView === "dashboard" ? <><div className="dashboard-heading"><div><p className="eyebrow">Dashboard</p><h2>Your search at a glance</h2><p>Live totals from every application in your tracker.</p></div><p className="dashboard-note">{applications.length === 0 ? "Add your first opportunity to start building a picture." : "Keep adding applications to make these totals more useful."}</p></div><div className="metric-grid"><article className="metric-card metric-card-total"><p>Total tracked</p><strong>{applications.length}</strong><span>Every opportunity</span></article><article className="metric-card"><p>Saved / to apply</p><strong>{statusCounts.SAVED}</strong><span>Ready for your next step</span></article><article className="metric-card"><p>Interviews</p><strong>{statusCounts.INTERVIEWING}</strong><span>Moving forward</span></article><article className="metric-card"><p>Offers</p><strong>{statusCounts.OFFER}</strong><span>Worth celebrating</span></article></div><div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div><section className="follow-up-overview" aria-labelledby="follow-up-overview-title"><div><p className="dashboard-section-label">Next actions</p><h3 id="follow-up-overview-title">Follow-ups</h3></div><span>{openFollowUps.length} open</span>{openFollowUps.length === 0 ? <p className="follow-up-overview-empty">No open follow-ups. Add one from an application when you have a next step.</p> : <div className="follow-up-overview-list">{openFollowUps.slice(0, 5).map((reminder) => <button type="button" className={`follow-up-overview-item ${isOverdue(reminder.dueDate) ? "is-overdue" : ""}`} key={reminder.id} onClick={() => handleDetailsOpen(reminder.application.id)}><span>{isOverdue(reminder.dueDate) ? "Overdue" : formatAppliedDate(reminder.dueDate)}</span><strong>{reminder.description}</strong><small>{reminder.application.company} - {reminder.application.position}</small></button>)}</div>}</section></> : <section className="resume-library" aria-labelledby="resume-library-title"><div className="resume-heading"><div><p className="eyebrow">Application materials</p><h2 id="resume-library-title">Resume library</h2><p>Keep reusable and tailored resumes together, then select one for each application.</p></div><span>{resumeVersions.length}</span></div>{resumeVersions.length === 0 ? <p className="resume-empty">Upload a tailored resume from an application to begin your library.</p> : <div className="resume-list">{resumeVersions.map((resumeVersion) => <article className="resume-card" key={resumeVersion.id}><div><strong>{resumeVersion.label}</strong>{resumeVersion.fileName && <span className="resume-file-name">{resumeVersion.fileName} · {formatFileSize(resumeVersion.fileSize)}</span>}{resumeVersion.storageKey && <a href={`${RESUMES_URL}/${resumeVersion.id}/file`} target="_blank" rel="noreferrer">View uploaded file</a>}{resumeVersion.documentUrl && <a href={resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document link</a>}{resumeVersion.notes && <FormattedText content={resumeVersion.notes} className="resume-notes" />}{resumeVersion.linkedApplications.length > 0 && <div className="resume-linked-applications"><span>Used for:</span><ul>{resumeVersion.linkedApplications.map((application) => <li key={application.id}><button type="button" className="text-button" onClick={() => handleDetailsOpen(application.id)}>{application.company} - {application.position}</button></li>)}</ul></div>}</div><div className="resume-actions"><button type="button" className="text-button" onClick={() => editLibraryResume(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleResumeVersionDelete(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>{deletingResumeVersionId === resumeVersion.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}</section>}
+      {dashboardView === "resumes" && !isLibraryResumeFormOpen && <div className="library-upload-action"><button type="button" onClick={openLibraryResumeForm}>Upload resume</button></div>}
+      {dashboardView === "resumes" && isLibraryResumeFormOpen && <form className="resume-form library-resume-form" onSubmit={handleResumeVersionSubmit}><h3>{editingResumeVersionId === null ? "Add to your resume library" : "Update resume details"}</h3><p>{editingResumeVersionId === null ? "This resume will stay reusable until you select it for an application." : "Update its label, document link, or tailoring notes. Uploaded files are preserved."}</p><div className="resume-form-grid"><label>Resume label<input required value={resumeVersionForm.label} onChange={(event) => { setResumeVersionForm({ ...resumeVersionForm, label: event.target.value }); setResumeVersionError(""); }} placeholder="General software resume" /></label><label>Document link (optional)<input type="url" value={resumeVersionForm.documentUrl} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, documentUrl: event.target.value })} placeholder="https://drive.google.com/..." disabled={resumeFile !== null} /></label>{editingResumeVersionId === null && <label className={`resume-file-picker full-width ${isResumeDropActive ? "is-drop-active" : ""}`} onDragOver={(event) => { event.preventDefault(); setIsResumeDropActive(true); }} onDragLeave={() => setIsResumeDropActive(false)} onDrop={(event) => { event.preventDefault(); setIsResumeDropActive(false); selectResumeFile(event.dataTransfer.files.item(0)); }}><span>Upload resume file (optional)</span><input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => selectResumeFile(event.target.files?.item(0) ?? null)} />{resumeFile ? <small>{resumeFile.name} · {formatFileSize(resumeFile.size)}</small> : <small>Drop a PDF, DOC, or DOCX here, or choose a file. Maximum 10 MB.</small>}</label>}<label className="full-width">Tailoring notes<textarea value={resumeVersionForm.notes} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setResumeVersionForm({ ...resumeVersionForm, notes }))} placeholder="Core skills, industry focus, or version details..." rows={3} /></label></div>{resumeVersionError && <p className="form-error" role="alert">{resumeVersionError}</p>}<div className="resume-form-actions"><button type="submit" disabled={isResumeVersionSubmitting}>{isResumeVersionSubmitting ? resumeFile ? "Uploading..." : "Saving..." : editingResumeVersionId === null ? "Add to library" : "Update resume"}</button><button type="button" className="secondary-button" onClick={() => { resetResumeVersionForm(); setIsLibraryResumeFormOpen(false); }} disabled={isResumeVersionSubmitting}>Cancel</button></div></form>}
     </section>}
 
     {!isLoading && currentUser && (isDetailsLoading || selectedApplication || detailsError) && <div className="detail-backdrop" onClick={closeDetails}>
@@ -675,17 +747,19 @@ function App() {
             <button type="button" className="job-description-edit" onClick={() => handleEditStart(selectedApplication)}>{selectedApplication.jobDescription ? "Edit job description" : "Add job description"}</button>
           </section>
           <section className="resume-section" aria-labelledby="resume-title">
-            <div className="resume-heading"><div><p className="detail-label">Application materials</p><h3 id="resume-title">Resume versions</h3></div><span>{resumeVersions.length}</span></div>
-            {resumeVersions.length === 0 ? <p className="resume-empty">No resume version saved yet. Record the version tailored for this application.</p> : <div className="resume-list">{resumeVersions.map((resumeVersion) => <article className="resume-card" key={resumeVersion.id}><div><strong>{resumeVersion.label}</strong>{resumeVersion.documentUrl && <a href={resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document</a>}{resumeVersion.notes && <FormattedText content={resumeVersion.notes} className="resume-notes" />}</div><div className="resume-actions"><button type="button" className="text-button" onClick={() => { setResumeVersionForm(createResumeVersionForm(resumeVersion)); setEditingResumeVersionId(resumeVersion.id); }}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleResumeVersionDelete(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>{deletingResumeVersionId === resumeVersion.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}
+            <div className="resume-heading"><div><p className="detail-label">Application materials</p><h3 id="resume-title">Resume used</h3></div><span>{selectedApplication.resumeVersion ? "Set" : "None"}</span></div>
+            {selectedApplication.resumeVersion ? <article className="resume-card"><div><strong>{selectedApplication.resumeVersion.label}</strong>{selectedApplication.resumeVersion.fileName && <span className="resume-file-name">{selectedApplication.resumeVersion.fileName} · {formatFileSize(selectedApplication.resumeVersion.fileSize)}</span>}{selectedApplication.resumeVersion.storageKey && <a href={`${RESUMES_URL}/${selectedApplication.resumeVersion.id}/file`} target="_blank" rel="noreferrer">View uploaded file</a>}{selectedApplication.resumeVersion.documentUrl && <a href={selectedApplication.resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document link</a>}</div></article> : <p className="resume-empty">No resume selected for this application yet.</p>}
+            <label className="resume-select">Choose from your resume library<select value={selectedApplication.resumeVersion?.id ?? ""} onChange={(event) => void handleResumeSelection(event.target.value ? Number(event.target.value) : null)}><option value="">No resume selected</option>{resumeVersions.map((resumeVersion) => <option value={resumeVersion.id} key={resumeVersion.id}>{resumeVersion.label}</option>)}</select></label>
             <form className="resume-form" onSubmit={handleResumeVersionSubmit}>
-              <h4>{editingResumeVersionId === null ? "Add a resume version" : "Update resume version"}</h4>
+              <h4>{editingResumeVersionId === null ? "Upload a new resume and use it here" : "Update resume details"}</h4>
               <div className="resume-form-grid">
                 <label>Version label<input required value={resumeVersionForm.label} onChange={(event) => { setResumeVersionForm({ ...resumeVersionForm, label: event.target.value }); setResumeVersionError(""); }} placeholder="Software Resume - September 2026" /></label>
-                <label>Document link<input type="url" value={resumeVersionForm.documentUrl} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, documentUrl: event.target.value })} placeholder="https://drive.google.com/..." /></label>
+                <label>Document link (optional)<input type="url" value={resumeVersionForm.documentUrl} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, documentUrl: event.target.value })} placeholder="https://drive.google.com/..." disabled={resumeFile !== null} /></label>
+                {editingResumeVersionId === null && <label className={`resume-file-picker full-width ${isResumeDropActive ? "is-drop-active" : ""}`} onDragOver={(event) => { event.preventDefault(); setIsResumeDropActive(true); }} onDragLeave={() => setIsResumeDropActive(false)} onDrop={(event) => { event.preventDefault(); setIsResumeDropActive(false); selectResumeFile(event.dataTransfer.files.item(0)); }}><span>Upload resume file (optional)</span><input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => selectResumeFile(event.target.files?.item(0) ?? null)} />{resumeFile ? <small>{resumeFile.name} · {formatFileSize(resumeFile.size)}</small> : <small>Drop a PDF, DOC, or DOCX here, or choose a file. Maximum 10 MB.</small>}</label>}
                 <label className="full-width">Tailoring notes<textarea value={resumeVersionForm.notes} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setResumeVersionForm({ ...resumeVersionForm, notes }))} placeholder="Skills emphasized, sections adjusted... Use - for bullet points." rows={3} /></label>
               </div>
               {resumeVersionError && <p className="form-error" role="alert">{resumeVersionError}</p>}
-              <div className="resume-form-actions"><button type="submit" disabled={isResumeVersionSubmitting}>{isResumeVersionSubmitting ? "Saving..." : editingResumeVersionId === null ? "Add resume version" : "Update resume version"}</button>{editingResumeVersionId !== null && <button type="button" className="secondary-button" onClick={resetResumeVersionForm} disabled={isResumeVersionSubmitting}>Cancel edit</button>}</div>
+              <div className="resume-form-actions"><button type="submit" disabled={isResumeVersionSubmitting}>{isResumeVersionSubmitting ? resumeFile ? "Uploading..." : "Saving..." : editingResumeVersionId === null ? "Add resume version" : "Update resume version"}</button>{editingResumeVersionId !== null && <button type="button" className="secondary-button" onClick={resetResumeVersionForm} disabled={isResumeVersionSubmitting}>Cancel edit</button>}</div>
             </form>
           </section>
           <section className="interview-section" aria-labelledby="interview-title">
@@ -738,6 +812,8 @@ function App() {
         </>}
       </section>
     </div>}
+
+    {resumePendingDelete && <div className="detail-backdrop" onClick={() => setResumePendingDelete(null)}><section className="resume-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="resume-delete-title" onClick={(event) => event.stopPropagation()}><h2 id="resume-delete-title">Delete {resumePendingDelete.label}?</h2>{resumePendingDelete.linkedApplications.length > 0 ? <><p>This resume is currently used by the following applications:</p><ul>{resumePendingDelete.linkedApplications.map((application) => <li key={application.id}>{application.company} - {application.position}</li>)}</ul><p>Deleting it will remove the selection from these applications, then permanently delete the stored file.</p></> : <p>This will permanently delete the resume file and its library record.</p>}<div className="resume-delete-actions"><button type="button" className="secondary-button" onClick={() => setResumePendingDelete(null)} disabled={deletingResumeVersionId !== null}>Cancel</button><button type="button" className="danger-button" onClick={() => void confirmResumeVersionDelete()} disabled={deletingResumeVersionId !== null}>{deletingResumeVersionId === resumePendingDelete.id ? resumePendingDelete.linkedApplications.length > 0 ? "Unlinking and deleting..." : "Deleting..." : resumePendingDelete.linkedApplications.length > 0 ? "Unlink and delete" : "Delete resume"}</button></div></section></div>}
 
     {!isLoading && currentUser && <section className="workspace" aria-label="Application tracker">
       <form className="application-form" onSubmit={handleSubmit}>

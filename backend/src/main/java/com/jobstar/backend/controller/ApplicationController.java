@@ -3,6 +3,7 @@ package com.jobstar.backend.controller;
 import java.util.List;
 
 import com.jobstar.backend.model.Application;
+import com.jobstar.backend.model.ResumeSelectionRequest;
 import com.jobstar.backend.model.UserAccount;
 import com.jobstar.backend.service.ApplicationService;
 import org.springframework.http.HttpStatus;
@@ -47,6 +48,12 @@ public class ApplicationController {
     public Application updateApplication(@PathVariable Long id, @RequestBody Application application,
             @AuthenticationPrincipal UserAccount currentUser) {
         return applicationService.updateApplication(id, application, currentUser);
+    }
+
+    @PutMapping("/{id}/resume")
+    public Application selectResumeVersion(@PathVariable Long id, @RequestBody ResumeSelectionRequest request,
+            @AuthenticationPrincipal UserAccount currentUser) {
+        return applicationService.selectResumeVersion(id, request.resumeVersionId(), currentUser);
     }
 
     @DeleteMapping("/{id}")
