@@ -4,8 +4,10 @@ import java.util.List;
 
 import com.jobstar.backend.model.Application;
 import com.jobstar.backend.model.ApplicationStatus;
+import com.jobstar.backend.model.ResumeVersion;
 import com.jobstar.backend.model.UserAccount;
 import com.jobstar.backend.repository.ApplicationRepository;
+import com.jobstar.backend.repository.ResumeVersionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,9 +16,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
+    private final ResumeVersionRepository resumeVersionRepository;
 
-    public ApplicationService(ApplicationRepository applicationRepository) {
+    public ApplicationService(ApplicationRepository applicationRepository, ResumeVersionRepository resumeVersionRepository) {
         this.applicationRepository = applicationRepository;
+        this.resumeVersionRepository = resumeVersionRepository;
     }
 
     public List<Application> getAllApplications(UserAccount owner) {
@@ -51,6 +55,14 @@ public class ApplicationService {
 
     public void deleteApplication(Long id, UserAccount owner) {
         applicationRepository.delete(findApplicationOrThrow(id, owner));
+    }
+
+    public Application selectResumeVersion(Long applicationId, Long resumeVersionId, UserAccount owner) {
+        Application application = findApplicationOrThrow(applicationId, owner);
+        ResumeVersion resumeVersion = resumeVersionId == null ? null : resumeVersionRepository.findByIdAndOwner(resumeVersionId, owner)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resume was not found"));
+        application.setResumeVersion(resumeVersion);
+        return applicationRepository.save(application);
     }
 
     private Application findApplicationOrThrow(Long id, UserAccount owner) {

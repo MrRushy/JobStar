@@ -309,9 +309,8 @@ class ApplicationApiIntegrationTests {
     @Test
     void signedInUserCanManageResumeVersionsForTheirApplication() throws Exception {
         MockHttpSession session = register("user@example.com");
-        String applicationId = createApplication(session, "Acme", "Developer");
 
-        MvcResult createResult = mockMvc.perform(post("/api/applications/{applicationId}/resumes", applicationId)
+        MvcResult createResult = mockMvc.perform(post("/api/resumes")
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -325,11 +324,11 @@ class ApplicationApiIntegrationTests {
         String resumeVersionId = com.jayway.jsonpath.JsonPath.read(
                 createResult.getResponse().getContentAsString(), "$.id").toString();
 
-        mockMvc.perform(get("/api/applications/{applicationId}/resumes", applicationId).session(session))
+        mockMvc.perform(get("/api/resumes").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].notes").value("Emphasized React and Spring Boot projects."));
 
-        mockMvc.perform(put("/api/applications/{applicationId}/resumes/{resumeVersionId}", applicationId, resumeVersionId)
+        mockMvc.perform(put("/api/resumes/{resumeVersionId}", resumeVersionId)
                         .session(session)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -339,7 +338,7 @@ class ApplicationApiIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.label").value("Software Resume - Revised"));
 
-        mockMvc.perform(delete("/api/applications/{applicationId}/resumes/{resumeVersionId}", applicationId, resumeVersionId)
+        mockMvc.perform(delete("/api/resumes/{resumeVersionId}", resumeVersionId)
                         .session(session)
                         .with(csrf()))
                 .andExpect(status().isNoContent());
@@ -349,10 +348,15 @@ class ApplicationApiIntegrationTests {
     void userCannotAccessAnotherUsersResumeVersions() throws Exception {
         MockHttpSession firstSession = register("first@example.com");
         MockHttpSession secondSession = register("second@example.com");
-        String applicationId = createApplication(firstSession, "Private Company", "Developer");
-
-        mockMvc.perform(get("/api/applications/{applicationId}/resumes", applicationId).session(secondSession))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/resumes")
+                        .session(firstSession)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"label\":\"Private resume\"}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(get("/api/resumes").session(secondSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
     }
 
     private MockHttpSession register(String email) throws Exception {

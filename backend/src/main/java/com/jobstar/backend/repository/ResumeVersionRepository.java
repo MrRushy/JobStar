@@ -5,11 +5,12 @@ import java.util.Optional;
 
 import com.jobstar.backend.model.Application;
 import com.jobstar.backend.model.ResumeVersion;
+import com.jobstar.backend.model.UserAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ResumeVersionRepository extends JpaRepository<ResumeVersion, Long> {
 
-    List<ResumeVersion> findAllByApplicationOrderByIdDesc(Application application);
+    List<ResumeVersion> findAllByOwnerOrderByIdDesc(UserAccount owner);
 
-    Optional<ResumeVersion> findByIdAndApplication(Long id, Application application);
+    Optional<ResumeVersion> findByIdAndOwner(Long id, UserAccount owner);
 }

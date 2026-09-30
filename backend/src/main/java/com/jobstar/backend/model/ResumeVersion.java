@@ -8,6 +8,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Transient;
+import java.util.List;
 
 @Entity
 public class ResumeVersion {
@@ -21,13 +23,25 @@ public class ResumeVersion {
     @Column(length = 1000)
     private String documentUrl;
 
+    private String fileName;
+
+    @Column(length = 1000)
+    private String storageKey;
+
+    private String contentType;
+
+    private Long fileSize;
+
     @Column(length = 2000)
     private String notes;
 
     @JsonIgnore
     @ManyToOne
-    @JoinColumn(name = "application_id", nullable = false)
-    private Application application;
+    @JoinColumn(name = "user_id")
+    private UserAccount owner;
+
+    @Transient
+    private List<ResumeApplicationReference> linkedApplications = List.of();
 
     public ResumeVersion() {
     }
@@ -52,6 +66,38 @@ public class ResumeVersion {
         this.documentUrl = documentUrl;
     }
 
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+    }
+
+    public String getStorageKey() {
+        return storageKey;
+    }
+
+    public void setStorageKey(String storageKey) {
+        this.storageKey = storageKey;
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
+
+    public void setContentType(String contentType) {
+        this.contentType = contentType;
+    }
+
+    public Long getFileSize() {
+        return fileSize;
+    }
+
+    public void setFileSize(Long fileSize) {
+        this.fileSize = fileSize;
+    }
+
     public String getNotes() {
         return notes;
     }
@@ -60,11 +106,19 @@ public class ResumeVersion {
         this.notes = notes;
     }
 
-    public Application getApplication() {
-        return application;
+    public UserAccount getOwner() {
+        return owner;
     }
 
-    public void setApplication(Application application) {
-        this.application = application;
+    public void setOwner(UserAccount owner) {
+        this.owner = owner;
+    }
+
+    public List<ResumeApplicationReference> getLinkedApplications() {
+        return linkedApplications;
+    }
+
+    public void setLinkedApplications(List<ResumeApplicationReference> linkedApplications) {
+        this.linkedApplications = linkedApplications;
     }
 }

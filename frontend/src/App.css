@@ -677,6 +677,91 @@ h1 {
   font-weight: 700;
 }
 
+.dashboard-view-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.dashboard-view-switch button {
+  width: auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 253, 247, 0.42);
+  color: rgba(255, 253, 247, 0.82);
+  background: transparent;
+  font-size: 0.76rem;
+}
+
+.dashboard-view-switch button:hover,
+.dashboard-view-switch button.is-active {
+  color: var(--ink);
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.dashboard-view-switch span {
+  margin-left: 5px;
+  font-family: "DM Mono", monospace;
+}
+
+.resume-library {
+  min-height: 300px;
+}
+
+.library-upload-action {
+  display: flex;
+  justify-content: end;
+  margin-top: 18px;
+}
+
+.library-upload-action button {
+  width: auto;
+}
+
+.library-resume-form {
+  margin-top: 18px;
+}
+
+.library-resume-form > p {
+  margin: -6px 0 16px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.resume-linked-applications {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.resume-linked-applications > span {
+  font-weight: 700;
+}
+
+.resume-linked-applications ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.resume-select {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.resume-file-name {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .resume-notes {
   margin-top: 8px;
   color: var(--muted);
@@ -704,6 +789,62 @@ h1 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 13px;
+}
+
+.resume-delete-dialog {
+  width: min(100% - 32px, 480px);
+  padding: 28px;
+  background: #fffdf7;
+  box-shadow: 0 18px 60px rgba(30, 49, 55, 0.25);
+}
+
+.resume-delete-dialog h2 {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-family: "DM Serif Display", serif;
+}
+
+.resume-delete-dialog p,
+.resume-delete-dialog li {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.resume-delete-dialog ul {
+  margin: 12px 0;
+  padding-left: 22px;
+}
+
+.resume-delete-actions {
+  display: flex;
+  justify-content: end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.resume-file-picker {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px dashed var(--forest);
+  background: #fffdf7;
+  cursor: pointer;
+}
+
+.resume-file-picker.is-drop-active {
+  background: #e4efe6;
+  box-shadow: inset 0 0 0 2px var(--forest);
+}
+
+.resume-file-picker input {
+  width: 100%;
+}
+
+.resume-file-picker small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .resume-form-actions {

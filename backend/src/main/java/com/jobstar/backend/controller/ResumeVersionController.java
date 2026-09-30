@@ -6,6 +6,10 @@ import com.jobstar.backend.model.ResumeVersion;
 import com.jobstar.backend.model.UserAccount;
 import com.jobstar.backend.service.ResumeVersionService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,9 +20,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
-@RequestMapping("/api/applications/{applicationId}/resumes")
+@RequestMapping("/api/resumes")
 public class ResumeVersionController {
 
     private final ResumeVersionService resumeVersionService;
@@ -28,28 +34,46 @@ public class ResumeVersionController {
     }
 
     @GetMapping
-    public List<ResumeVersion> getAllResumeVersions(@PathVariable Long applicationId,
-            @AuthenticationPrincipal UserAccount currentUser) {
-        return resumeVersionService.getAllResumeVersions(applicationId, currentUser);
+    public List<ResumeVersion> getAllResumeVersions(@AuthenticationPrincipal UserAccount currentUser) {
+        return resumeVersionService.getAllResumeVersions(currentUser);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ResumeVersion createResumeVersion(@PathVariable Long applicationId, @RequestBody ResumeVersion resumeVersion,
+    public ResumeVersion createResumeVersion(@RequestBody ResumeVersion resumeVersion, @AuthenticationPrincipal UserAccount currentUser) {
+        return resumeVersionService.createResumeVersion(resumeVersion, currentUser);
+    }
+
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ResumeVersion uploadResumeVersion(@RequestParam String label,
+            @RequestParam(required = false) String notes, @RequestParam MultipartFile file,
             @AuthenticationPrincipal UserAccount currentUser) {
-        return resumeVersionService.createResumeVersion(applicationId, resumeVersion, currentUser);
+        return resumeVersionService.createUploadedResumeVersion(label, notes, file, currentUser);
     }
 
     @PutMapping("/{resumeVersionId}")
-    public ResumeVersion updateResumeVersion(@PathVariable Long applicationId, @PathVariable Long resumeVersionId,
-            @RequestBody ResumeVersion resumeVersion, @AuthenticationPrincipal UserAccount currentUser) {
-        return resumeVersionService.updateResumeVersion(applicationId, resumeVersionId, resumeVersion, currentUser);
+    public ResumeVersion updateResumeVersion(@PathVariable Long resumeVersionId, @RequestBody ResumeVersion resumeVersion,
+            @AuthenticationPrincipal UserAccount currentUser) {
+        return resumeVersionService.updateResumeVersion(resumeVersionId, resumeVersion, currentUser);
+    }
+
+    @GetMapping("/{resumeVersionId}/file")
+    public ResponseEntity<byte[]> downloadResumeFile(@PathVariable Long resumeVersionId,
+            @AuthenticationPrincipal UserAccount currentUser) {
+        var file = resumeVersionService.downloadResumeFile(resumeVersionId, currentUser);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM_VALUE : file.contentType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline().filename(file.fileName() == null ? "resume" : file.fileName()).build().toString())
+                .body(file.content());
     }
 
     @DeleteMapping("/{resumeVersionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteResumeVersion(@PathVariable Long applicationId, @PathVariable Long resumeVersionId,
+    public void deleteResumeVersion(@PathVariable Long resumeVersionId,
+            @RequestParam(defaultValue = "false") boolean unlinkApplications,
             @AuthenticationPrincipal UserAccount currentUser) {
-        resumeVersionService.deleteResumeVersion(applicationId, resumeVersionId, currentUser);
+        resumeVersionService.deleteResumeVersion(resumeVersionId, unlinkApplications, currentUser);
     }
 }

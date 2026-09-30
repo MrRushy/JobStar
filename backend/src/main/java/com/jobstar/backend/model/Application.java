@@ -59,9 +59,9 @@ public class Application {
     @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
     private List<FollowUpReminder> followUpReminders = new ArrayList<>();
 
-    @JsonIgnore
-    @OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
-    private List<ResumeVersion> resumeVersions = new ArrayList<>();
+    @ManyToOne
+    @JoinColumn(name = "resume_version_id")
+    private ResumeVersion resumeVersion;
 
     public Application() {
     }
@@ -140,5 +140,13 @@ public class Application {
 
     public void setOwner(UserAccount owner) {
         this.owner = owner;
+    }
+
+    public ResumeVersion getResumeVersion() {
+        return resumeVersion;
+    }
+
+    public void setResumeVersion(ResumeVersion resumeVersion) {
+        this.resumeVersion = resumeVersion;
     }
 }
