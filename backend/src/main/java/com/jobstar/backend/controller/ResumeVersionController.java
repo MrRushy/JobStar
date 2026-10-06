@@ -1,6 +1,8 @@
 package com.jobstar.backend.controller;
 
 import java.util.List;
+import jakarta.servlet.http.HttpServletRequest;
+import com.jobstar.backend.web.ResumeFileErrorPage;
 
 import com.jobstar.backend.model.ResumeVersion;
 import com.jobstar.backend.model.UserAccount;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/resumes")
@@ -59,14 +62,19 @@ public class ResumeVersionController {
     }
 
     @GetMapping("/{resumeVersionId}/file")
-    public ResponseEntity<byte[]> downloadResumeFile(@PathVariable Long resumeVersionId,
-            @AuthenticationPrincipal UserAccount currentUser) {
-        var file = resumeVersionService.downloadResumeFile(resumeVersionId, currentUser);
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(file.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM_VALUE : file.contentType()))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.inline().filename(file.fileName() == null ? "resume" : file.fileName()).build().toString())
-                .body(file.content());
+    public ResponseEntity<?> downloadResumeFile(@PathVariable Long resumeVersionId,
+            @AuthenticationPrincipal UserAccount currentUser, HttpServletRequest request) {
+        try {
+            var file = resumeVersionService.downloadResumeFile(resumeVersionId, currentUser);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(file.contentType() == null ? MediaType.APPLICATION_OCTET_STREAM_VALUE : file.contentType()))
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            ContentDisposition.inline().filename(file.fileName() == null ? "resume" : file.fileName()).build().toString())
+                    .body(file.content());
+        } catch (ResponseStatusException exception) {
+            if (!ResumeFileErrorPage.isBrowserFileRequest(request)) throw exception;
+            return ResumeFileErrorPage.response(exception.getStatusCode().value());
+        }
     }
 
     @DeleteMapping("/{resumeVersionId}")

@@ -53,6 +53,18 @@ class ApplicationApiIntegrationTests {
     }
 
     @Test
+    void signedOutBrowserFileRequestsReceiveAProductErrorPage() throws Exception {
+        mockMvc.perform(get("/api/resumes/1/file").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isForbidden())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("Sign in to the account")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", "no-store"));
+    }
+
+    @Test
     void signedOutUsersCanLoadTheFrontendButNotProtectedApis() throws Exception {
         mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
@@ -434,6 +446,14 @@ class ApplicationApiIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Private resume\"}"))
                 .andExpect(status().isCreated()).andReturn();
         String resumeId = com.jayway.jsonpath.JsonPath.read(resume.getResponse().getContentAsString(), "$.id").toString();
+        mockMvc.perform(get("/api/resumes/{id}/file", resumeId).session(other).accept(MediaType.TEXT_HTML))
+                .andExpect(status().isNotFound())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("cannot be accessed from your account")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private resume"))));
         MvcResult application = mockMvc.perform(post("/api/applications").session(other).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
