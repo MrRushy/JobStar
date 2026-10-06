@@ -174,9 +174,9 @@ when adding meaningful data. Waking the service is not a backup.
 
 ## Deployment Record
 
-- Live URL: pending
-- Deployed commit: pending
-- Supabase database connection verified: pending
-- Private file access verified: pending
-- Production smoke test: pending
+- Live URL: (https://jobstar-7fu8.onrender.com/)
+- Deployed commit: [04dce32](https://github.com/MrRushy/JobStar/commit/04dce325e0d1de734715f1bb64dfb4ac811aecef)
+- Supabase database connection verified: Passed - 2026-10-06
+- Private file access verified: Passed - 2026-10-06
+- Production smoke test: Pending final Resume Library verification
 - Backup/restore exercise: pending
