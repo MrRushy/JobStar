@@ -708,6 +708,24 @@ h1 {
   min-height: 300px;
 }
 
+.resume-library-feedback {
+  margin: 16px 0;
+  padding: 18px;
+  border-left: 3px solid var(--gold);
+  background: #fffdf7;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.resume-library-feedback p {
+  margin: 0 0 12px;
+}
+
+.resume-library-feedback button {
+  width: auto;
+}
+
 .library-upload-action {
   display: flex;
   justify-content: end;
