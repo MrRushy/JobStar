@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -20,6 +21,7 @@ import jakarta.persistence.OneToMany;
 public class Application {
 
     @Id
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
@@ -61,6 +63,7 @@ public class Application {
 
     @ManyToOne
     @JoinColumn(name = "resume_version_id")
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private ResumeVersion resumeVersion;
 
     public Application() {

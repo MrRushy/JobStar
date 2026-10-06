@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jobstar.backend.repository.ApplicationRepository;
+import com.jobstar.backend.repository.ResumeVersionRepository;
 import com.jobstar.backend.repository.UserAccountRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,15 +36,44 @@ class ApplicationApiIntegrationTests {
     @Autowired
     private UserAccountRepository userAccountRepository;
 
+    @Autowired
+    private ResumeVersionRepository resumeVersionRepository;
+
     @BeforeEach
     void clearDatabase() {
         applicationRepository.deleteAll();
+        resumeVersionRepository.deleteAll();
         userAccountRepository.deleteAll();
     }
 
     @Test
     void applicationsRequireAuthentication() throws Exception {
         mockMvc.perform(get("/api/applications"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void signedOutBrowserFileRequestsReceiveAProductErrorPage() throws Exception {
+        mockMvc.perform(get("/api/resumes/1/file").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isForbidden())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("Sign in to the account")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", "no-store"));
+    }
+
+    @Test
+    void signedOutUsersCanLoadTheFrontendButNotProtectedApis() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl("index.html"));
+        mockMvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("Public page fixture")));
+        mockMvc.perform(get("/api/resumes"))
                 .andExpect(status().isForbidden());
     }
 
@@ -384,6 +414,59 @@ class ApplicationApiIntegrationTests {
                 .andReturn();
 
         return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.id").toString();
+    }
+
+    @Test
+    void resumeCreationIgnoresClientSuppliedStorageMetadata() throws Exception {
+        MockHttpSession session = register("metadata@example.com");
+        MvcResult result = mockMvc.perform(post("/api/resumes")
+                        .session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"label":"Link-only resume", "storageKey":"users/other/resume.pdf",
+                                 "fileName":"forged.pdf", "contentType":"text/html", "fileSize":10}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.storageKey").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.fileName").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.contentType").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.fileSize").value(org.hamcrest.Matchers.nullValue()))
+                .andReturn();
+        String resumeId = com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.id").toString();
+        mockMvc.perform(get("/api/resumes/{id}/file", resumeId).session(session))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/resumes/{id}", resumeId).session(session).with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void applicationCreationCannotBypassResumeOwnershipChecks() throws Exception {
+        MockHttpSession owner = register("resume-owner@example.com");
+        MockHttpSession other = register("resume-other@example.com");
+        MvcResult resume = mockMvc.perform(post("/api/resumes").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Private resume\"}"))
+                .andExpect(status().isCreated()).andReturn();
+        String resumeId = com.jayway.jsonpath.JsonPath.read(resume.getResponse().getContentAsString(), "$.id").toString();
+        mockMvc.perform(get("/api/resumes/{id}/file", resumeId).session(other).accept(MediaType.TEXT_HTML))
+                .andExpect(status().isNotFound())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("cannot be accessed from your account")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Private resume"))));
+        MvcResult application = mockMvc.perform(post("/api/applications").session(other).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"company":"Acme", "position":"Developer", "resumeVersion":{"id":%s}}
+                                """.formatted(resumeId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.resumeVersion").value(org.hamcrest.Matchers.nullValue())).andReturn();
+        String applicationId = com.jayway.jsonpath.JsonPath.read(application.getResponse().getContentAsString(), "$.id").toString();
+        mockMvc.perform(put("/api/applications/{id}/resume", applicationId).session(other).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"resumeVersionId\":" + resumeId + "}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/resumes/{id}", resumeId).session(owner).with(csrf()))
+                .andExpect(status().isNoContent());
     }
 
     private String createContact(MockHttpSession session, String applicationId, String name) throws Exception {

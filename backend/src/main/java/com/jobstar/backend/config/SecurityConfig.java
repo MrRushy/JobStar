@@ -1,6 +1,8 @@
 package com.jobstar.backend.config;
 
 import java.util.List;
+import com.jobstar.backend.web.ResumeFileErrorPage;
+import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,6 +38,16 @@ public class SecurityConfig {
         CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
 
         return http
+                .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, exception) -> {
+                    if (ResumeFileErrorPage.isBrowserFileRequest(request)) {
+                        response.setStatus(403);
+                        response.setContentType("text/html;charset=UTF-8");
+                        response.setHeader("Cache-Control", "no-store");
+                        response.getWriter().write(ResumeFileErrorPage.html(403));
+                    } else {
+                        new Http403ForbiddenEntryPoint().commence(request, response, exception);
+                    }
+                }))
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
                 .securityContext(context -> context.securityContextRepository(securityContextRepository))
@@ -43,6 +55,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers("/api/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/assets/**", "/favicon.svg", "/favicon.ico").permitAll()
                         .anyRequest().authenticated())
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)

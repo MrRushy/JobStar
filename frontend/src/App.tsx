@@ -119,6 +119,8 @@ function App() {
   const [contactForm, setContactForm] = useState<ContactForm>(emptyContactForm);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [resumeVersions, setResumeVersions] = useState<ResumeVersion[]>([]);
+  const [resumeLibraryStatus, setResumeLibraryStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [resumeLibraryError, setResumeLibraryError] = useState("");
   const [resumeVersionForm, setResumeVersionForm] = useState<ResumeVersionForm>(emptyResumeVersionForm);
   const [editingResumeVersionId, setEditingResumeVersionId] = useState<number | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -153,6 +155,7 @@ function App() {
   const [resumeVersionError, setResumeVersionError] = useState("");
   const [followUpError, setFollowUpError] = useState("");
   const detailsRequestId = useRef(0);
+  const resumeLibraryRequestId = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -185,9 +188,21 @@ function App() {
   }
 
   async function loadResumeVersions(signal?: AbortSignal) {
-    const response = await fetch(RESUMES_URL, { credentials: "include", signal });
-    if (!response.ok) throw new Error("Could not load resume library.");
-    setResumeVersions((await response.json()) as ResumeVersion[]);
+    const requestId = ++resumeLibraryRequestId.current;
+    setResumeLibraryStatus("loading");
+    setResumeLibraryError("");
+    try {
+      const response = await fetch(RESUMES_URL, { credentials: "include", signal });
+      if (!response.ok) throw new Error("Could not load your resume library. Please try again.");
+      const resumes = (await response.json()) as ResumeVersion[];
+      if (signal?.aborted || resumeLibraryRequestId.current !== requestId) return;
+      setResumeVersions(resumes);
+      setResumeLibraryStatus("ready");
+    } catch (requestError) {
+      if (signal?.aborted || resumeLibraryRequestId.current !== requestId) return;
+      setResumeLibraryError(requestError instanceof Error ? requestError.message : "Could not load your resume library. Please try again.");
+      setResumeLibraryStatus("error");
+    }
   }
 
   async function csrfHeaders() {
@@ -382,7 +397,7 @@ function App() {
   }
 
   async function handleCopyEmail(email: string, contactId: number) {
-    let copied = false;
+    let copied: boolean;
     try {
       await navigator.clipboard.writeText(email);
       copied = true;
@@ -620,10 +635,14 @@ function App() {
     try {
       const response = await fetch(`${API_ROOT}/auth/${mode}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...(await csrfHeaders()) }, body: JSON.stringify({ ...credentials, email }) });
       if (!response.ok) throw new Error(await responseMessage(response, mode === "register" ? "Could not create your account." : "Could not log you in."));
+      resumeLibraryRequestId.current += 1;
+      setResumeVersions([]);
+      setResumeLibraryStatus("loading");
+      setResumeLibraryError("");
       setCurrentUser((await response.json()) as Account);
       setLoginCredentials(emptyCredentials);
       setRegisterCredentials(emptyCredentials);
-      await Promise.all([loadApplications(), loadOpenFollowUps()]);
+      await Promise.all([loadApplications(), loadOpenFollowUps(), loadResumeVersions()]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not complete that request.");
     } finally { setAuthenticatingMode(null); }
@@ -635,6 +654,13 @@ function App() {
     try {
       const response = await fetch(`${API_ROOT}/auth/logout`, { method: "POST", credentials: "include", headers: await csrfHeaders() });
       if (!response.ok) throw new Error(await responseMessage(response, "Could not log you out."));
+      resumeLibraryRequestId.current += 1;
+      setResumeVersions([]);
+      setResumeLibraryStatus("loading");
+      setResumeLibraryError("");
+      setResumePendingDelete(null);
+      setIsLibraryResumeFormOpen(false);
+      closeDetails();
       setCurrentUser(null); setApplications([]); setOpenFollowUps([]); resetForm();
     } catch (requestError) { setLoginError(requestError instanceof Error ? requestError.message : "Could not log you out."); }
   }
@@ -693,6 +719,13 @@ function App() {
     ]),
   ) as Record<ApplicationStatus, number>;
 
+  const resumeLibraryFeedback = resumeLibraryStatus === "loading"
+    ? <p className="resume-library-feedback" role="status">Loading your resume library...</p>
+    : resumeLibraryStatus === "error"
+      ? <div className="resume-library-feedback"><p role="alert">{resumeLibraryError}</p><button type="button" className="secondary-button" onClick={() => void loadResumeVersions()}>Retry loading</button></div>
+      : null;
+  const resumeLibraryCount = resumeLibraryStatus === "ready" ? resumeVersions.length : resumeLibraryStatus === "loading" ? "..." : "!";
+
   return <main className="app-shell">
     <header className="masthead">
       <p className="eyebrow">Your job search, in focus</p><h1>JobStar</h1>
@@ -722,9 +755,9 @@ function App() {
     </section>}
 
     {!isLoading && currentUser && <section className="dashboard" aria-label="Application dashboard">
-      <div className="dashboard-view-switch" role="tablist" aria-label="Dashboard views"><button type="button" className={dashboardView === "dashboard" ? "is-active" : ""} onClick={() => setDashboardView("dashboard")}>Dashboard</button><button type="button" className={dashboardView === "resumes" ? "is-active" : ""} onClick={() => setDashboardView("resumes")}>Resume library <span>{resumeVersions.length}</span></button></div>
-      {dashboardView === "dashboard" ? <><div className="dashboard-heading"><div><p className="eyebrow">Dashboard</p><h2>Your search at a glance</h2><p>Live totals from every application in your tracker.</p></div><p className="dashboard-note">{applications.length === 0 ? "Add your first opportunity to start building a picture." : "Keep adding applications to make these totals more useful."}</p></div><div className="metric-grid"><article className="metric-card metric-card-total"><p>Total tracked</p><strong>{applications.length}</strong><span>Every opportunity</span></article><article className="metric-card"><p>Saved / to apply</p><strong>{statusCounts.SAVED}</strong><span>Ready for your next step</span></article><article className="metric-card"><p>Interviews</p><strong>{statusCounts.INTERVIEWING}</strong><span>Moving forward</span></article><article className="metric-card"><p>Offers</p><strong>{statusCounts.OFFER}</strong><span>Worth celebrating</span></article></div><div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div><section className="follow-up-overview" aria-labelledby="follow-up-overview-title"><div><p className="dashboard-section-label">Next actions</p><h3 id="follow-up-overview-title">Follow-ups</h3></div><span>{openFollowUps.length} open</span>{openFollowUps.length === 0 ? <p className="follow-up-overview-empty">No open follow-ups. Add one from an application when you have a next step.</p> : <div className="follow-up-overview-list">{openFollowUps.slice(0, 5).map((reminder) => <button type="button" className={`follow-up-overview-item ${isOverdue(reminder.dueDate) ? "is-overdue" : ""}`} key={reminder.id} onClick={() => handleDetailsOpen(reminder.application.id)}><span>{isOverdue(reminder.dueDate) ? "Overdue" : formatAppliedDate(reminder.dueDate)}</span><strong>{reminder.description}</strong><small>{reminder.application.company} - {reminder.application.position}</small></button>)}</div>}</section></> : <section className="resume-library" aria-labelledby="resume-library-title"><div className="resume-heading"><div><p className="eyebrow">Application materials</p><h2 id="resume-library-title">Resume library</h2><p>Keep reusable and tailored resumes together, then select one for each application.</p></div><span>{resumeVersions.length}</span></div>{resumeVersions.length === 0 ? <p className="resume-empty">Upload a tailored resume from an application to begin your library.</p> : <div className="resume-list">{resumeVersions.map((resumeVersion) => <article className="resume-card" key={resumeVersion.id}><div><strong>{resumeVersion.label}</strong>{resumeVersion.fileName && <span className="resume-file-name">{resumeVersion.fileName} · {formatFileSize(resumeVersion.fileSize)}</span>}{resumeVersion.storageKey && <a href={`${RESUMES_URL}/${resumeVersion.id}/file`} target="_blank" rel="noreferrer">View uploaded file</a>}{resumeVersion.documentUrl && <a href={resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document link</a>}{resumeVersion.notes && <FormattedText content={resumeVersion.notes} className="resume-notes" />}{resumeVersion.linkedApplications.length > 0 && <div className="resume-linked-applications"><span>Used for:</span><ul>{resumeVersion.linkedApplications.map((application) => <li key={application.id}><button type="button" className="text-button" onClick={() => handleDetailsOpen(application.id)}>{application.company} - {application.position}</button></li>)}</ul></div>}</div><div className="resume-actions"><button type="button" className="text-button" onClick={() => editLibraryResume(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleResumeVersionDelete(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>{deletingResumeVersionId === resumeVersion.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}</section>}
-      {dashboardView === "resumes" && !isLibraryResumeFormOpen && <div className="library-upload-action"><button type="button" onClick={openLibraryResumeForm}>Upload resume</button></div>}
+      <div className="dashboard-view-switch" role="tablist" aria-label="Dashboard views"><button type="button" className={dashboardView === "dashboard" ? "is-active" : ""} onClick={() => setDashboardView("dashboard")}>Dashboard</button><button type="button" className={dashboardView === "resumes" ? "is-active" : ""} onClick={() => setDashboardView("resumes")}>Resume library <span>{resumeLibraryCount}</span></button></div>
+      {dashboardView === "dashboard" ? <><div className="dashboard-heading"><div><p className="eyebrow">Dashboard</p><h2>Your search at a glance</h2><p>Live totals from every application in your tracker.</p></div><p className="dashboard-note">{applications.length === 0 ? "Add your first opportunity to start building a picture." : "Keep adding applications to make these totals more useful."}</p></div><div className="metric-grid"><article className="metric-card metric-card-total"><p>Total tracked</p><strong>{applications.length}</strong><span>Every opportunity</span></article><article className="metric-card"><p>Saved / to apply</p><strong>{statusCounts.SAVED}</strong><span>Ready for your next step</span></article><article className="metric-card"><p>Interviews</p><strong>{statusCounts.INTERVIEWING}</strong><span>Moving forward</span></article><article className="metric-card"><p>Offers</p><strong>{statusCounts.OFFER}</strong><span>Worth celebrating</span></article></div><div className="dashboard-breakdown"><p>Pipeline breakdown</p><div>{Object.entries(statusLabels).map(([status, label]) => <span key={status}>{label}<strong>{statusCounts[status as ApplicationStatus]}</strong></span>)}</div></div><section className="follow-up-overview" aria-labelledby="follow-up-overview-title"><div><p className="dashboard-section-label">Next actions</p><h3 id="follow-up-overview-title">Follow-ups</h3></div><span>{openFollowUps.length} open</span>{openFollowUps.length === 0 ? <p className="follow-up-overview-empty">No open follow-ups. Add one from an application when you have a next step.</p> : <div className="follow-up-overview-list">{openFollowUps.slice(0, 5).map((reminder) => <button type="button" className={`follow-up-overview-item ${isOverdue(reminder.dueDate) ? "is-overdue" : ""}`} key={reminder.id} onClick={() => handleDetailsOpen(reminder.application.id)}><span>{isOverdue(reminder.dueDate) ? "Overdue" : formatAppliedDate(reminder.dueDate)}</span><strong>{reminder.description}</strong><small>{reminder.application.company} - {reminder.application.position}</small></button>)}</div>}</section></> : <section className="resume-library" aria-labelledby="resume-library-title" aria-busy={resumeLibraryStatus === "loading"}><div className="resume-heading"><div><p className="eyebrow">Application materials</p><h2 id="resume-library-title">Resume library</h2><p>Keep reusable and tailored resumes together, then select one for each application.</p></div><span>{resumeLibraryCount}</span></div>{resumeLibraryStatus !== "ready" ? resumeLibraryFeedback : resumeVersions.length === 0 ? <p className="resume-empty">No resumes saved yet. Upload one here or from an application to begin your library.</p> : <div className="resume-list">{resumeVersions.map((resumeVersion) => <article className="resume-card" key={resumeVersion.id}><div><strong>{resumeVersion.label}</strong>{resumeVersion.fileName && <span className="resume-file-name">{resumeVersion.fileName} · {formatFileSize(resumeVersion.fileSize)}</span>}{resumeVersion.storageKey && <a href={`${RESUMES_URL}/${resumeVersion.id}/file`} target="_blank" rel="noreferrer">View uploaded file</a>}{resumeVersion.documentUrl && <a href={resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document link</a>}{resumeVersion.notes && <FormattedText content={resumeVersion.notes} className="resume-notes" />}{resumeVersion.linkedApplications.length > 0 && <div className="resume-linked-applications"><span>Used for:</span><ul>{resumeVersion.linkedApplications.map((application) => <li key={application.id}><button type="button" className="text-button" onClick={() => handleDetailsOpen(application.id)}>{application.company} - {application.position}</button></li>)}</ul></div>}</div><div className="resume-actions"><button type="button" className="text-button" onClick={() => editLibraryResume(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>Edit</button><button type="button" className="text-button danger-text" onClick={() => handleResumeVersionDelete(resumeVersion)} disabled={deletingResumeVersionId === resumeVersion.id}>{deletingResumeVersionId === resumeVersion.id ? "Deleting..." : "Delete"}</button></div></article>)}</div>}</section>}
+      {dashboardView === "resumes" && !isLibraryResumeFormOpen && <div className="library-upload-action"><button type="button" onClick={openLibraryResumeForm} disabled={resumeLibraryStatus !== "ready"}>Upload resume</button></div>}
       {dashboardView === "resumes" && isLibraryResumeFormOpen && <form className="resume-form library-resume-form" onSubmit={handleResumeVersionSubmit}><h3>{editingResumeVersionId === null ? "Add to your resume library" : "Update resume details"}</h3><p>{editingResumeVersionId === null ? "This resume will stay reusable until you select it for an application." : "Update its label, document link, or tailoring notes. Uploaded files are preserved."}</p><div className="resume-form-grid"><label>Resume label<input required value={resumeVersionForm.label} onChange={(event) => { setResumeVersionForm({ ...resumeVersionForm, label: event.target.value }); setResumeVersionError(""); }} placeholder="General software resume" /></label><label>Document link (optional)<input type="url" value={resumeVersionForm.documentUrl} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, documentUrl: event.target.value })} placeholder="https://drive.google.com/..." disabled={resumeFile !== null} /></label>{editingResumeVersionId === null && <label className={`resume-file-picker full-width ${isResumeDropActive ? "is-drop-active" : ""}`} onDragOver={(event) => { event.preventDefault(); setIsResumeDropActive(true); }} onDragLeave={() => setIsResumeDropActive(false)} onDrop={(event) => { event.preventDefault(); setIsResumeDropActive(false); selectResumeFile(event.dataTransfer.files.item(0)); }}><span>Upload resume file (optional)</span><input type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => selectResumeFile(event.target.files?.item(0) ?? null)} />{resumeFile ? <small>{resumeFile.name} · {formatFileSize(resumeFile.size)}</small> : <small>Drop a PDF, DOC, or DOCX here, or choose a file. Maximum 10 MB.</small>}</label>}<label className="full-width">Tailoring notes<textarea value={resumeVersionForm.notes} onChange={(event) => setResumeVersionForm({ ...resumeVersionForm, notes: event.target.value })} onKeyDown={(event) => insertTextareaTab(event, (notes) => setResumeVersionForm({ ...resumeVersionForm, notes }))} placeholder="Core skills, industry focus, or version details..." rows={3} /></label></div>{resumeVersionError && <p className="form-error" role="alert">{resumeVersionError}</p>}<div className="resume-form-actions"><button type="submit" disabled={isResumeVersionSubmitting}>{isResumeVersionSubmitting ? resumeFile ? "Uploading..." : "Saving..." : editingResumeVersionId === null ? "Add to library" : "Update resume"}</button><button type="button" className="secondary-button" onClick={() => { resetResumeVersionForm(); setIsLibraryResumeFormOpen(false); }} disabled={isResumeVersionSubmitting}>Cancel</button></div></form>}
     </section>}
 
@@ -749,7 +782,8 @@ function App() {
           <section className="resume-section" aria-labelledby="resume-title">
             <div className="resume-heading"><div><p className="detail-label">Application materials</p><h3 id="resume-title">Resume used</h3></div><span>{selectedApplication.resumeVersion ? "Set" : "None"}</span></div>
             {selectedApplication.resumeVersion ? <article className="resume-card"><div><strong>{selectedApplication.resumeVersion.label}</strong>{selectedApplication.resumeVersion.fileName && <span className="resume-file-name">{selectedApplication.resumeVersion.fileName} · {formatFileSize(selectedApplication.resumeVersion.fileSize)}</span>}{selectedApplication.resumeVersion.storageKey && <a href={`${RESUMES_URL}/${selectedApplication.resumeVersion.id}/file`} target="_blank" rel="noreferrer">View uploaded file</a>}{selectedApplication.resumeVersion.documentUrl && <a href={selectedApplication.resumeVersion.documentUrl} target="_blank" rel="noreferrer">Open document link</a>}</div></article> : <p className="resume-empty">No resume selected for this application yet.</p>}
-            <label className="resume-select">Choose from your resume library<select value={selectedApplication.resumeVersion?.id ?? ""} onChange={(event) => void handleResumeSelection(event.target.value ? Number(event.target.value) : null)}><option value="">No resume selected</option>{resumeVersions.map((resumeVersion) => <option value={resumeVersion.id} key={resumeVersion.id}>{resumeVersion.label}</option>)}</select></label>
+            <label className="resume-select">Choose from your resume library<select disabled={resumeLibraryStatus !== "ready"} value={selectedApplication.resumeVersion?.id ?? ""} onChange={(event) => void handleResumeSelection(event.target.value ? Number(event.target.value) : null)}><option value="">{resumeLibraryStatus === "loading" ? "Loading resumes..." : resumeLibraryStatus === "error" ? "Resume library unavailable" : "No resume selected"}</option>{resumeVersions.map((resumeVersion) => <option value={resumeVersion.id} key={resumeVersion.id}>{resumeVersion.label}</option>)}</select></label>
+            {resumeLibraryFeedback}
             <form className="resume-form" onSubmit={handleResumeVersionSubmit}>
               <h4>{editingResumeVersionId === null ? "Upload a new resume and use it here" : "Update resume details"}</h4>
               <div className="resume-form-grid">

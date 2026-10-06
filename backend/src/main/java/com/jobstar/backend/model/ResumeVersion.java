@@ -1,6 +1,7 @@
 package com.jobstar.backend.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -15,6 +16,7 @@ import java.util.List;
 public class ResumeVersion {
 
     @Id
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
@@ -23,13 +25,17 @@ public class ResumeVersion {
     @Column(length = 1000)
     private String documentUrl;
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String fileName;
 
     @Column(length = 1000)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String storageKey;
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private String contentType;
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Long fileSize;
 
     @Column(length = 2000)
@@ -41,6 +47,7 @@ public class ResumeVersion {
     private UserAccount owner;
 
     @Transient
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private List<ResumeApplicationReference> linkedApplications = List.of();
 
     public ResumeVersion() {
