@@ -161,6 +161,10 @@ pool is limited to three database connections.
 
 ## Backups and Free-Tier Operation
 
+The repeatable procedure and verification evidence are in
+[Backup and Recovery](BACKUP_AND_RECOVERY.md). The helper uses a private
+`backend/.env.backup` configuration, separate from local application settings.
+
 Render's filesystem is disposable; persistent data/files live in Supabase.
 Free Render services can sleep and free Supabase projects can pause. Check
 [Render's free limits](https://render.com/docs/free) and
@@ -179,4 +183,4 @@ when adding meaningful data. Waking the service is not a backup.
 - Supabase database connection verified: Passed - 2026-10-06
 - Private file access verified: Passed - 2026-10-06
 - Production smoke test: Pending final Resume Library verification
-- Backup/restore exercise: pending
+- Backup/restore exercise: Passed - 2026-10-20 (production export, referenced-file checksums, and isolated local database restore). Replacement-bucket upload and restored-app login were not exercised.

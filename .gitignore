@@ -16,3 +16,9 @@ backend/HELP.md
 # Frontend dependencies/build files
 frontend/node_modules/
 frontend/dist/
+
+# Private backups and backup tooling runtime
+.venv-backup/
+**/__pycache__/
+backups/
+*.dump
